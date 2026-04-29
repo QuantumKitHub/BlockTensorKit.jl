@@ -31,7 +31,10 @@ for TTA in (:AbstractTensorMap, :AbstractBlockTensorMap), TTB in (:AbstractTenso
         ) where {N₁, N₂}
         S = TK.check_spacetype(A, B)
         TC′ = TK.promote_permute(TC, sectortype(S))
-        M = TK.promote_storagetype(TK.similarstoragetype(A, TC′), TK.similarstoragetype(B, TC′))
+        # explicitly compute storagetype here to work around eltype of AbstractTensorMap
+        MA = TK.similarstoragetype(TK.storagetype(A), TC′)
+        MB = TK.similarstoragetype(TK.storagetype(B), TC′)
+        M = TK.promote_storagetype(MA, MB)
         return if issparse(A) && issparse(B)
             sparseblocktensormaptype(S, N₁, N₂, M)
         else

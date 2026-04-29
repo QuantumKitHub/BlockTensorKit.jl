@@ -168,6 +168,10 @@ VI.scalartype(::Type{<:SparseBlockTensorMap{TT}}) where {TT} = scalartype(TT)
 Base.parent(t::SparseBlockTensorMap) = SparseTensorArray(t.data, space(t))
 Base.eltype(::Type{<:SparseBlockTensorMap{TT}}) where {TT} = TT
 
+# handle this separately because the storagetype of `AbstractTensorMap` is
+# *always* Vector no matter the actual data storage type
+TK.storagetype(t::SparseBlockTensorMap{AbstractTensorMap{E, S, N₁, N₂}}) where {E, S, N₁, N₂} = TK.promote_storagetype(values(t.data)...)
+
 issparse(::SparseBlockTensorMap) = true
 nonzero_keys(t::SparseBlockTensorMap) = keys(t.data)
 nonzero_values(t::SparseBlockTensorMap) = values(t.data)
