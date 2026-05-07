@@ -57,3 +57,6 @@ TestExtras = "5ed8adda-3752-4e41-b88a-e8b09835ee3a"
 
 [targets]
 test = ["Test", "TestExtras", "Random", "Combinatorics", "SafeTestsets", "Aqua", "Adapt", "JLArrays"]
+
+[sources]
+TensorKit = {url = "https://github.com/quantumkithub/tensorkit.jl", rev = "main"}
