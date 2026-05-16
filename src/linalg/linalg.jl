@@ -239,3 +239,23 @@ function LinearAlgebra.isposdef!(t::AbstractBlockTensorMap)
     end
     return true
 end
+
+function LinearAlgebra.lmul!(D::DiagonalTensorMap, t::AbstractBlockTensorMap)
+    domain(D) == codomain(t) || throw(SpaceMismatch())
+    TensorKit.foreachblock(t, D) do c, (tblock, bs...)
+        tblock′ = lmul!(bs..., copy_dense!(similar_dense(tblock), tblock))
+        tblock === tblock′ || copyto!(tblock, tblock′)
+        return tblock
+    end
+    return t
+end
+
+function LinearAlgebra.rmul!(t::AbstractBlockTensorMap, D::DiagonalTensorMap)
+    codomain(D) == domain(t) || throw(SpaceMismatch())
+    TensorKit.foreachblock(t, D) do c, (tblock, bs...)
+        tblock′ = rmul!(copy_dense!(similar_dense(tblock), tblock), bs...)
+        tblock === tblock′ || copyto!(tblock, tblock′)
+        return tblock
+    end
+    return t
+end

@@ -188,3 +188,30 @@ for f! in (
     @eval MAK.$f!(::AbstractBlockTensorMap, x, ::DiagonalAlgorithm) =
         error("Blocktensors are incompatible with diagonal algorithm")
 end
+
+function TensorKit.Factorizations.truncate_domain!(tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap, inds)
+    TensorKit.foreachblock(tdst, tsrc) do c, (dst_block, src_block)
+        I = get(inds, c, nothing)
+        dst_dense = copy_dense!(similar_dense(dst_block), dst_block)
+        src_dense = copy_dense!(similar_dense(src_block), src_block)
+        @assert !isnothing(I)
+        @views dst_dense .= src_dense[:, I]
+        # deal with the case where the output is not in-place
+        dst_dense === dst_block || copyto!(dst_block, dst_dense)
+        return nothing
+    end
+    return tdst
+end
+function TensorKit.Factorizations.truncate_codomain!(tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap, inds)
+    TensorKit.foreachblock(tdst, tsrc) do c, (dst_block, src_block)
+        I = get(inds, c, nothing)
+        dst_dense = copy_dense!(similar_dense(dst_block), dst_block)
+        src_dense = copy_dense!(similar_dense(src_block), src_block)
+        @assert !isnothing(I)
+        @views dst_dense .= src_dense[I, :]
+        # deal with the case where the output is not in-place
+        dst_dense === dst_block || copyto!(dst_block, dst_dense)
+        return nothing
+    end
+    return tdst
+end
