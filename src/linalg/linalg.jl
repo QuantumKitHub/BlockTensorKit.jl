@@ -242,8 +242,8 @@ end
 
 function LinearAlgebra.lmul!(D::DiagonalTensorMap, t::AbstractBlockTensorMap)
     domain(D) == codomain(t) || throw(SpaceMismatch())
-    TensorKit.foreachblock(t, D) do c, (tblock, bs...)
-        tblock′ = lmul!(bs..., copy_dense!(similar_dense(tblock), tblock))
+    TensorKit.foreachblock(t, D) do c, (tblock, Dblock)
+        tblock′ = lmul!(Dblock, copy_dense!(similar_dense(tblock), tblock))
         tblock === tblock′ || copyto!(tblock, tblock′)
         return tblock
     end
@@ -252,8 +252,8 @@ end
 
 function LinearAlgebra.rmul!(t::AbstractBlockTensorMap, D::DiagonalTensorMap)
     codomain(D) == domain(t) || throw(SpaceMismatch())
-    TensorKit.foreachblock(t, D) do c, (tblock, bs...)
-        tblock′ = rmul!(copy_dense!(similar_dense(tblock), tblock), bs...)
+    TensorKit.foreachblock(t, D) do c, (tblock, Dblock)
+        tblock′ = rmul!(copy_dense!(similar_dense(tblock), tblock), Dblock)
         tblock === tblock′ || copyto!(tblock, tblock′)
         return tblock
     end
