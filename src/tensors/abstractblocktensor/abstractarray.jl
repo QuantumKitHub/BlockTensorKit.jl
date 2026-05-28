@@ -288,7 +288,7 @@ function similar_tensormaptype(
     ) where {S}
     if eltype(t) === T && typeof(space(t)) === typeof(P)
         return T
-    elseif isconcretetype(T)
+    elseif isconcretetype(T) || T isa Union
         return tensormaptype(S, numout(P), numin(P), storagetype(T))
     else
         return AbstractTensorMap{scalartype(T), S, numout(P), numin(P)}
