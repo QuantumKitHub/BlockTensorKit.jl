@@ -171,7 +171,7 @@ Base.eltype(::Type{<:SparseBlockTensorMap{TT}}) where {TT} = TT
 # handle this separately because the storagetype of `AbstractTensorMap` is
 # *always* Vector no matter the actual data storage type
 TK.storagetype(t::SparseBlockTensorMap{AbstractTensorMap{E, S, N₁, N₂}}) where {E, S, N₁, N₂} =
-    foldl(TK.promote_storagetype, nonzero_values(t))
+    mapreduce(TK.storagetype, TK.promote_storagetype, nonzero_values(t))
 
 issparse(::SparseBlockTensorMap) = true
 nonzero_keys(t::SparseBlockTensorMap) = keys(t.data)
