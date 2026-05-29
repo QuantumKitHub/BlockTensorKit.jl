@@ -164,7 +164,7 @@ Base.parent(t::BlockTensorMap) = t.data
 # handle this separately because the storagetype of `AbstractTensorMap` is
 # *always* Vector no matter the actual data storage type
 TK.storagetype(t::BlockTensorMap{AbstractTensorMap{E, S, N₁, N₂}}) where {E, S, N₁, N₂} =
-    foldl(TK.promote_storagetype, values(t.data))
+    mapreduce(TK.storagetype, TK.promote_storagetype, values(t.data); init = TK.storagetype(eltype(t)))
 
 function Base.copyto!(
         dest::BlockTensorMap, Rdest::CartesianIndices,
