@@ -1,6 +1,6 @@
 name = "BlockTensorKit"
 uuid = "5f87ffc2-9cf1-4a46-8172-465d160bd8cd"
-version = "0.3.13"
+version = "0.3.14"
 authors = ["Lukas Devos <ldevos98@gmail.com> and contributors"]
 
 [deps]
@@ -36,12 +36,12 @@ MatrixAlgebraKit = "0.6"
 Random = "1"
 SafeTestsets = "0.1"
 Strided = "2.3.3"
-TensorKit = "0.16.4"
+TensorKit = "0.16.4, 0.17"
 TensorOperations = "5"
 Test = "1"
 TestExtras = "0.2, 0.3"
 TupleTools = "1"
-VectorInterface = "0.4.8, 0.5"
+VectorInterface = "0.4.8, 0.5, 0.6"
 julia = "1.10"
 
 [extras]
