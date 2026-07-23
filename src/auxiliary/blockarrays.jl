@@ -27,9 +27,13 @@ function MAK.zero!(A::BlockBlasMat)
 end
 
 function MAK.one!(A::BlockBlasMat)
+    rowaxis, colaxis = axes(A)
     for bj in blockaxes(A, 2), bi in blockaxes(A, 1)
         a = view(A, bi, bj)
-        bi == bj ? MAK.one!(a) : MAK.zero!(a)
+        MAK.zero!(a)
+        isempty(a) && continue
+        k = first(rowaxis[bi]) - first(colaxis[bj])
+        view(a, MAK.diagind(a, k)) .= one(eltype(a))
     end
     return A
 end
