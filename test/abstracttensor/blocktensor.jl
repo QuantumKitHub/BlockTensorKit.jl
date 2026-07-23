@@ -152,6 +152,24 @@ end
     end
 end
 
+@testset "one!/isomorphism with mismatched block partitions" begin
+    # regression test: codomain and domain are isomorphic but partitioned differently
+    # (Vflat has a single block, Vsum decomposes into two), which used to confuse
+    # MAK.one!'s block-diagonal detection
+    W1 = Rep[U₁](0 => 2, 1 => 1)
+    W2 = Rep[U₁](0 => 2, 1 => 1)
+    Vsum = W1 ⊞ W2
+    Vflat = oplus(Vsum)
+
+    for T in (Float64, ComplexF64), A in (Vector{T}, JLVector{T})
+        u = @constinferred unitary(A, Vflat, Vsum)
+        @test storagetype(u) == A
+        @test u' * u ≈ id(A, Vsum)
+        @test only(u * u') ≈ id(A, Vflat)
+        @test isunitary(u)
+    end
+end
+
 @testset "Basic linear algebra: test via conversion" begin
     W = V1 ⊗ V2 ⊗ V3 ← V4 ⊗ V5
     for T in (Float32, ComplexF64)

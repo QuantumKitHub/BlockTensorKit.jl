@@ -1,6 +1,6 @@
 name = "BlockTensorKit"
 uuid = "5f87ffc2-9cf1-4a46-8172-465d160bd8cd"
-version = "0.3.14"
+version = "0.3.15"
 authors = ["Lukas Devos <ldevos98@gmail.com> and contributors"]
 
 [deps]
