@@ -28,6 +28,9 @@ const GROUP = uppercase(
         @time @safetestset "SparseBlockTensor" begin
             include("abstracttensor/sparseblocktensor.jl")
         end
+        @time @safetestset "BraidingTensor" begin
+            include("abstracttensor/braidingtensor.jl")
+        end
     end
 
     if GROUP == "ALL" || GROUP == "LINALG"
