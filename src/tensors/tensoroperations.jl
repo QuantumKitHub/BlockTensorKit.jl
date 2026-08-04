@@ -118,13 +118,14 @@ end
 function TK.BraidingTensor{T, S}(
         V1::SumSpace{S}, V2::SumSpace{S}, adjoint::Bool = false
     ) where {T, S}
-    τtype = BraidingTensor{T, S}
-    tdst = SparseBlockTensorMap{τtype}(undef, V2 ⊗ V1, V1 ⊗ V2)
+    τtype = TK.braidingtensortype(S, T)
+    cod, dom = adjoint ? (V1 ⊗ V2, V2 ⊗ V1) : (V2 ⊗ V1, V1 ⊗ V2)
+    tdst = SparseBlockTensorMap{τtype}(undef, cod, dom)
     Vs = eachspace(tdst)
     @inbounds for I in CartesianIndices(tdst)
         if I[1] == I[4] && I[2] == I[3]
             V = Vs[I]
-            tdst[I] = TK.BraidingTensor{T, S}(V[2], V[1], adjoint)
+            tdst[I] = adjoint ? τtype(V[1], V[2], true) : τtype(V[2], V[1], false)
         end
     end
     return tdst
