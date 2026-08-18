@@ -1,6 +1,7 @@
 using Test
 using TestExtras
 using TensorKit
+using TensorKit: ℙ
 using BlockTensorKit
 using Random
 
@@ -33,4 +34,15 @@ Random.seed!(1234)
     if !(BraidingStyle(sectortype(V)) isa SymmetricBraiding)
         @test !(y ≈ braid(x, ((2, 1), (3,)), (2, 1, 3)))
     end
+end
+
+@testset "Issue #68" begin
+    x = randn(ComplexF64, (⊞(ℙ^1) ⊗ ⊞(ℙ^1)) ← ⊞(ℙ^1))
+    O = randn(ComplexF64, ((ℙ^1 ⊞ ℙ^4 ⊞ ℙ^16 ⊞ ℙ^4) ⊗ ⊞(ℙ^2)) ← (⊞(ℙ^2) ⊗ ⊞(ℙ^1)))
+    A = randn(ComplexF64, (ℙ^4 ⊗ F^2 ⊗ (ℙ^2)') ← ℙ^1)
+    Ab = randn(ComplexF64, (ℙ^4 ⊗ ℙ^2 ⊗ (ℙ^2)') ← ℙ^1)
+
+    @plansor y[-1 -2; -3] ≔ A[-1 4 2; 1] * O[-2 6; 4 5] * τ[5 7; 2 3] *
+        conj(Ab[-3 6 7; 8]) * x[1 3; 8]
+    @test space(y) == (⊞(ℙ^4) ⊗ ⊞(ℙ^1)) ← ⊞(ℙ^4)
 end
