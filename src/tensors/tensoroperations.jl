@@ -119,6 +119,12 @@ function TK.BraidingTensor{T, S}(
         V1::SumSpace{S}, V2::SumSpace{S}, adjoint::Bool = false
     ) where {T, S}
     τtype = TK.braidingtensortype(S, T)
+    return τtype(V1, V2, adjoint)
+end
+function TK.BraidingTensor{T, S, A}(
+        V1::SumSpace{S}, V2::SumSpace{S}, adjoint::Bool = false
+    ) where {T, S, A}
+    τtype = BraidingTensor{T, S, A}
     cod, dom = adjoint ? (V1 ⊗ V2, V2 ⊗ V1) : (V2 ⊗ V1, V1 ⊗ V2)
     tdst = SparseBlockTensorMap{τtype}(undef, cod, dom)
     Vs = eachspace(tdst)
@@ -130,3 +136,12 @@ function TK.BraidingTensor{T, S}(
     end
     return tdst
 end
+
+TK.braidingtensortype(::Type{SumSpace{S}}, ::Type{TorA}) where {S <: IndexSpace, TorA} =
+    TK.braidingtensortype(S, TorA)
+
+# TODO: remove once proper promotion rules in TensorKit are in place
+TK.BraidingTensor{T, S, A}(V1::S, V2::SumSpace{S}, adjoint::Bool = false) where {T, S, A} =
+    BraidingTensor{T, S, A}(promote(V1, V2)..., adjoint)
+TK.BraidingTensor{T, S, A}(V1::SumSpace{S}, V2::S, adjoint::Bool = false) where {T, S, A} =
+    BraidingTensor{T, S, A}(promote(V1, V2)..., adjoint)
