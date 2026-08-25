@@ -38,6 +38,7 @@ import TupleTools as TT
 import MatrixAlgebraKit as MAK
 
 include("auxiliary/blockarrays.jl")
+include("auxiliary/sliceindices.jl")
 
 # Spaces
 include("vectorspaces/sumspace.jl")

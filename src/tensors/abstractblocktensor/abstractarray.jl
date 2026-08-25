@@ -90,51 +90,30 @@ end
     getindex!(parent(t), I)
 
 # slicing getindex needs to correctly allocate output blocktensor:
-const SliceIndex = Union{Strided.SliceIndex, AbstractVector{<:Union{Integer, Bool}}}
+@propagate_inbounds Base.getindex(t::AbstractBlockTensorMap, indices::Vararg{SliceIndex}) =
+    _slice_getindex(t, indices...)
+# disambiguate: TensorKit/src/tensors/abstracttensor.jl:540
+@propagate_inbounds Base.getindex(t::AbstractBlockTensorMap, indices::Vararg{Strided.SliceIndex}) =
+    _slice_getindex(t, indices...)
 
-Base.@propagate_inbounds function Base.getindex(
-        t::AbstractBlockTensorMap, indices::Vararg{SliceIndex}
-    )
-    V = space(eachspace(t)[indices...])
-    tdst = similar(t, V)
+@propagate_inbounds function _slice_getindex(
+        t::AbstractBlockTensorMap, indices::Vararg{Any, M}
+    ) where {M}
+    M == numind(t) || return _slice_getindex_single(t, indices...)
+    inds = Base.to_indices(t, indices)
+    inds isa NTuple{M, Int} && return parent(t)[inds...]
+    tdst = similar(t, space(eachspace(t)[inds...]))
     length(tdst) == 0 && return tdst
-
-    # prevent discarding of singleton dimensions
-    indices′ = map(indices) do ind
-        return ind isa Int ? (ind:ind) : ind
-    end
-    Rsrc = CartesianIndices(t)[indices′...]
-    Rdst = CartesianIndices(tdst)
-
-    for (I, v) in nonzero_pairs(t)
-        j = findfirst(==(I), Rsrc)
-        isnothing(j) && continue
-        tdst[Rdst[j]] = v
-    end
-    return tdst
+    return _copyslice!(tdst, t, inds)
 end
 
-# disambiguate:
-@propagate_inbounds function Base.getindex(
-        t::AbstractBlockTensorMap, indices::Vararg{Strided.SliceIndex}
-    )
-    V = space(eachspace(t)[indices...])
-    tdst = similar(t, V)
-    length(tdst) == 0 && return tdst
-
-    # prevent discarding of singleton dimensions
-    indices′ = map(indices) do ind
-        return ind isa Int ? (ind:ind) : ind
-    end
-    Rsrc = CartesianIndices(t)[indices′...]
-    Rdst = CartesianIndices(tdst)
-
-    for (I, v) in nonzero_pairs(t)
-        j = findfirst(==(I), Rsrc)
-        isnothing(j) && continue
-        tdst[Rdst[j]] = v
-    end
-    return tdst
+# a single index is only supported when it selects a single nontrivial dimension
+@noinline function _slice_getindex_single(
+        t::AbstractBlockTensorMap, indices::Vararg{Any, M}
+    ) where {M}
+    space(eachspace(t)[indices...]) # errors as before if unsupported
+    d = something(findfirst(>(1), size(t)), 1)
+    return _slice_getindex(t, ntuple(i -> i == d ? only(indices) : 1, numind(t))...)
 end
 
 # TODO: check if this fallback is fair
@@ -151,9 +130,21 @@ function Base.setindex!(::AbstractBlockTensorMap, ::AbstractTensorMap, ::FusionT
 end
 
 # setindex verifies structure is correct
-@inline function Base.setindex!(
-        t::AbstractBlockTensorMap, v::AbstractTensorMap, indices::Vararg{SliceIndex}
-    )
+@propagate_inbounds Base.setindex!(
+    t::AbstractBlockTensorMap, v::AbstractTensorMap, indices::Vararg{SliceIndex}
+) = _slice_setindex!(t, v, indices...)
+@propagate_inbounds Base.setindex!(
+    t::AbstractBlockTensorMap, v::AbstractBlockTensorMap, indices::Vararg{SliceIndex}
+) = _slice_setindex!(t, v, indices...)
+# disambiguate: TensorKit/src/tensors/abstracttensor.jl:552
+@propagate_inbounds Base.setindex!(
+    t::AbstractBlockTensorMap, v::AbstractTensorMap, indices::Vararg{Strided.SliceIndex}
+) = _slice_setindex!(t, v, indices...)
+@propagate_inbounds Base.setindex!(
+    t::AbstractBlockTensorMap, v::AbstractBlockTensorMap, indices::Vararg{Strided.SliceIndex}
+) = _slice_setindex!(t, v, indices...)
+
+@inline function _slice_setindex!(t::AbstractBlockTensorMap, v::AbstractTensorMap, indices...)
     @boundscheck begin
         checkbounds(t, indices...)
         checkspaces(t, v, indices...)
@@ -161,39 +152,12 @@ end
     @inbounds parent(t)[indices...] = v
     return t
 end
-# setindex with blocktensor needs to correctly slice-assign
-@inline function Base.setindex!(
-        t::AbstractBlockTensorMap, v::AbstractBlockTensorMap, indices::Vararg{SliceIndex}
-    )
+# a blocktensor needs to be slice-assigned
+@inline function _slice_setindex!(t::AbstractBlockTensorMap, v::AbstractBlockTensorMap, indices...)
     @boundscheck begin
         checkbounds(t, indices...)
         checkspaces(t, v, indices...)
     end
-
-    @inbounds copyto!(view(parent(t), indices...), parent(v))
-    return t
-end
-
-# disambiguate
-@inline function Base.setindex!(
-        t::AbstractBlockTensorMap, v::AbstractTensorMap, indices::Vararg{Strided.SliceIndex}
-    )
-    @boundscheck begin
-        checkbounds(t, indices...)
-        checkspaces(t, v, indices...)
-    end
-    @inbounds parent(t)[indices...] = v
-    return t
-end
-# disambiguate
-@inline function Base.setindex!(
-        t::AbstractBlockTensorMap, v::AbstractBlockTensorMap, indices::Vararg{Strided.SliceIndex},
-    )
-    @boundscheck begin
-        checkbounds(t, indices...)
-        checkspaces(t, v, indices...)
-    end
-
     @inbounds copyto!(view(parent(t), indices...), parent(v))
     return t
 end

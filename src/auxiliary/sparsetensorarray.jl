@@ -168,33 +168,12 @@ end
 # non-scalar indexing
 # -------------------
 # specialisations to have non-scalar indexing behave as expected
-
-_newindex(i::Int, range::Int) = i == range ? (1,) : nothing
-function _newindex(i::Int, range::AbstractVector{Int})
-    k = findfirst(==(i), range)
-    return k === nothing ? nothing : (k,)
-end
-_newindices(::Tuple{}, ::Tuple{}) = ()
-function _newindices(I::Tuple, indices::Tuple)
-    i = _newindex(I[1], indices[1])
-    Itail = _newindices(Base.tail(I), Base.tail(indices))
-    (i === nothing || Itail === nothing) && return nothing
-    return (i..., Itail...)
-end
-
 function Base._unsafe_getindex(
         ::IndexCartesian,
         t::SparseTensorArray{S, N₁, N₂, T, N}, I::Vararg{Union{Real, AbstractArray}, N},
     ) where {S, N₁, N₂, T, N}
     dest = similar(t, eltype(t), space(eachspace(t)[I...]))
-    indices = Base.to_indices(t, I)
-    for (k, v) in t.data
-        newI = _newindices(k.I, indices)
-        if newI !== nothing
-            dest[newI...] = v
-        end
-    end
-    return dest
+    return _copyslice!(dest, t, Base.to_indices(t, I))
 end
 
 # Space checking
