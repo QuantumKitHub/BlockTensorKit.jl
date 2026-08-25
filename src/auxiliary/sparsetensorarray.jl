@@ -34,6 +34,11 @@ Base.pairs(A::SparseTensorArray) = pairs(A.data)
 Base.keys(A::SparseTensorArray) = keys(A.data)
 Base.values(A::SparseTensorArray) = values(A.data)
 
+nonzero_keys(A::SparseTensorArray) = keys(A.data)
+nonzero_values(A::SparseTensorArray) = values(A.data)
+nonzero_pairs(A::SparseTensorArray) = pairs(A.data)
+nonzero_length(A::SparseTensorArray) = length(A.data)
+
 TensorKit.space(A::SparseTensorArray) = A.space
 TensorKit.codomain(A::SparseTensorArray) = codomain(space(A))
 TensorKit.domain(A::SparseTensorArray) = domain(space(A))
@@ -100,38 +105,42 @@ function Base.similar(
     return SparseTensorArray{S, N₁, N₂, T, N}(Dict{CartesianIndex{N}, T}(), spaces)
 end
 
+_undropped(inds::Tuple) = map(I -> I isa Base.ScalarIndex ? (I:I) : I, inds)
+
+# clear the entries of `A` selected by `inds` that `v` does not store
+function _deletemissing!(A::SparseTensorArray, inds::Tuple, v)
+    # sweep whichever of the selected region and the stored entries is smaller
+    if length(v) ≤ nonzero_length(A)
+        for I in eachindex(IndexCartesian(), v)
+            haskey(v, I) || delete!(A, CartesianIndex(Base.reindex(inds, I.I)))
+        end
+    else
+        maps = map(_invert_index, size(A), inds)
+        for J in collect(nonzero_keys(A))
+            rs = map(_dstrange, maps, J.I)
+            any(isempty, rs) && continue
+            any(P -> haskey(v, CartesianIndex(P)), Iterators.product(rs...)) && continue
+            delete!(A, J)
+        end
+    end
+    return A
+end
+
+# the destination spans exactly the viewed region, so everything not copied is dropped
 Base.@propagate_inbounds function Base.copyto!(
         t::SparseTensorArray, v::SubArray{T, N, A}
     ) where {T, N, A <: SparseTensorArray}
-    undropped_parentindices = map(Base.parentindices(v)) do I
-        I isa Base.ScalarIndex ? (I:I) : I
-    end
-
-    for I in eachindex(IndexCartesian(), t)
-        parentI = CartesianIndex(Base.reindex(undropped_parentindices, I.I))
-        if haskey(parent(v), parentI)
-            t[I] = parent(v)[parentI]
-        else
-            delete!(t, I)
-        end
-    end
-    return t
+    empty!(t)
+    return _copyslice!(t, parent(v), _undropped(Base.parentindices(v)))
 end
 
 Base.@propagate_inbounds function Base.copyto!(
         t::SubArray{T, N, A}, v::SparseTensorArray
     ) where {T, N, A <: SparseTensorArray}
-    undropped_parentindices = map(Base.parentindices(t)) do I
-        I isa Base.ScalarIndex ? (I:I) : I
-    end
-
-    for I in eachindex(IndexCartesian(), v)
-        if haskey(v, I)
-            t[I] = v[I]
-        else
-            parentI = CartesianIndex(Base.reindex(undropped_parentindices, I.I))
-            delete!(parent(t), parentI)
-        end
+    inds = _undropped(Base.parentindices(t))
+    _deletemissing!(parent(t), inds, v)
+    for (I, x) in nonzero_pairs(v)
+        parent(t)[Base.reindex(inds, I.I)...] = x
     end
     return t
 end
@@ -154,12 +163,12 @@ Base.@propagate_inbounds function Base.copyto!(
         checkbounds(src, first(Rsrc))
         checkbounds(src, last(Rsrc))
     end
-    CRdest = CartesianIndices(Rdest)
-    CRsrc = CartesianIndices(Rsrc)
-    ΔI = first(CRdest) - first(CRsrc)
-    for I in CRsrc
-        if Rsrc[I] in nonzero_keys(src)
-            dest[Rdest[I + ΔI]] = src[Rsrc[I]]
+    maps = map(_invert_index, size(src), Rsrc.indices)
+    for (I, x) in nonzero_pairs(src)
+        rs = map(_dstrange, maps, I.I)
+        any(isempty, rs) && continue
+        for P in Iterators.product(rs...)
+            dest[Rdest[P...]] = x
         end
     end
     return dest

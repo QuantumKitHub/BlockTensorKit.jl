@@ -95,8 +95,92 @@ end
 # the parent array has its own slicing implementation
 @testset "parent array slicing" begin
     st = sprand(V ⊗ V ⊗ V, 0.5)
-    @test parent(st)[[true, false, true], :, :] == parent(st[[1, 3], :, :])
-    @test parent(st)[[1, 1, 3], :, :] == parent(st[[1, 1, 3], :, :])
+    for inds in ([true, false, true], [1, 3], [1, 1, 3], 1:2)
+        a, b = parent(st)[inds, :, :], parent(st[inds, :, :])
+        @test a == b
+        @test length(a.data) == length(b.data)  # must not densify
+    end
+end
+
+# `nonzero_*` on the parent array must report stored entries, not every entry
+@testset "sparse parent accessors" begin
+    st = sprand(V ⊗ V ⊗ V, 0.5)
+    A = parent(st)
+    stored = length(A.data)
+    @test 0 < stored < length(A)
+    @test nonzero_length(A) == stored
+    @test length(collect(nonzero_keys(A))) == stored
+    @test length(collect(nonzero_pairs(A))) == stored
+    @test length(collect(nonzero_values(A))) == stored
+    @test length(parent(A[1:3, :, :]).data) == stored
+end
+
+@testset "sparse slice assignment" begin
+    Vh = SumSpace(ℂ^2, ℂ^2, ℂ^2)  # homogeneous, so any index can be assigned to any other
+    for _ in 1:10
+        t = sprand(Vh ⊗ Vh ⊗ Vh, 0.4)
+        src = sprand(Vh ⊗ Vh ⊗ Vh, 0.4)[1:2, :, :]
+        expected = Set(I for I in nonzero_keys(t) if I[1] > 2)
+        union!(expected, nonzero_keys(src))
+        blocks = Dict(I => src[I] for I in nonzero_keys(src))
+        for I in nonzero_keys(t)
+            I[1] > 2 && (blocks[I] = t[I])
+        end
+        t[1:2, :, :] = src
+        @test Set(nonzero_keys(t)) == expected
+        for (I, x) in blocks
+            @test t[I] === x
+        end
+    end
+
+    # structural zeros of the source clear the destination
+    t = sprand(Vh ⊗ Vh ⊗ Vh, 1.0)
+    @test nonzero_length(t) == 27
+    t[1:2, :, :] = spzeros(Float64, Vh ⊗ Vh ⊗ Vh)[1:2, :, :]
+    @test nonzero_length(t) == 9
+    @test all(I -> I[1] == 3, nonzero_keys(t))
+end
+
+@testset "copyto! on the parent array" begin
+    Vh = SumSpace(ℂ^2, ℂ^2, ℂ^2)  # homogeneous, so blocks can move between indices
+    st = sprand(Vh ⊗ Vh ⊗ Vh, 0.5)
+    A = parent(st)
+
+    # into a fresh array from a view: the destination spans the view exactly
+    dst = parent(st[1:2, :, :])
+    dst[1, 1, 1] = rand(eachspace(st)[1, 1, 1])
+    copyto!(dst, view(A, 1:2, :, :))
+    @test Set(nonzero_keys(dst)) == Set(I for I in nonzero_keys(A) if I[1] ≤ 2)
+    for I in nonzero_keys(dst)
+        @test dst[I] === A[I]
+    end
+
+    # region-to-region, including a stepped region
+    for st_ in (1, 2)
+        a, b = parent(sprand(Vh ⊗ Vh ⊗ Vh, 0.5)), parent(sprand(Vh ⊗ Vh ⊗ Vh, 0.5))
+        Rsrc = CartesianIndices((1:st_:3, 1:1, 1:1))
+        Rdest = CartesianIndices((1:st_:3, 2:2, 3:3))
+        before = Dict(I => a[I] for I in nonzero_keys(a))
+        copyto!(a, Rdest, b, Rsrc)
+        for (Pd, Ps) in zip(Rdest, Rsrc)
+            if Ps in nonzero_keys(b)
+                @test a[Pd] === b[Ps]
+            else
+                @test (Pd in keys(before)) == (Pd in nonzero_keys(a))
+            end
+        end
+    end
+end
+
+@testset "cat" begin
+    st = sprand(V ⊗ V ⊗ V, 0.5)
+    c = cat(st, st; dims = 1)
+    @test size(c) == (6, 3, 3)
+    @test nonzero_length(c) == 2 * nonzero_length(st)
+    for I in nonzero_keys(st)
+        @test c[I] === st[I]
+        @test c[I + CartesianIndex(3, 0, 0)] === st[I]
+    end
 end
 
 # guard against slicing work proportional to the destination region again
@@ -111,4 +195,22 @@ end
     s = tb[inds...]
     @test nonzero_length(s) == 2 * (D - 2) - 1
     @test @allocated(tb[inds...]) < 2_000_000
+end
+
+# guard against assignment work proportional to the assigned region
+@testset "assignment scales with nnz" begin
+    D = 48
+    Vb = SumSpace(fill(ℂ^1, D)...)
+    tb = spzeros(Float64, Vb ⊗ Vb ← Vb ⊗ Vb)
+    for i in 1:D
+        tb[i, i, i, i] = rand(eachspace(tb)[i, i, i, i])
+    end
+    inds = ntuple(_ -> 2:(D - 1), 4)
+    src = tb[inds...]
+    tb[inds...] = src                     # warm up
+    nnz = nonzero_length(tb)
+    # the assigned region holds (D - 2)^4 ~ 4.5e6 blocks but only D are stored, so anything
+    # proportional to the region takes >100 ms here while this takes microseconds
+    @test (@elapsed tb[inds...] = src) < 0.02
+    @test nonzero_length(tb) == nnz
 end
