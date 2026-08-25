@@ -74,22 +74,16 @@ for f in [
         MAK.$f!(t, out, MAK.select_algorithm(MAK.$f!, t, nothing; alg.kwargs...))
 end
 
-# specializations until fixes in base package
-function MAK.is_left_isometric(A::BlockMatrix; atol::Real = 0, rtol::Real = MAK.defaulttol(A), norm = LinearAlgebra.norm)
-    P = A' * A
-    nP = norm(P) # isapprox would use `rtol * max(norm(P), norm(I))`
-    for I in MAK.diagind(P)
-        P[I] -= 1
-    end
-    return norm(P) <= max(atol, rtol * nP) # assume that the norm of I is `sqrt(n)`
+# specializations until fixes in base packages:
+# - `similar(::MulAdd{<:AbstractBlockLayout,...})` hardcodes `Array` blocks, so `A' * A` on
+#   non-CPU blocks mixes host and device storage (JuliaArrays/BlockArrays.jl#215).
+# - `MAK.diagview` silently does not alias into a `BlockMatrix`, so subtracting the identity there is a no-op.
+# Densifying sidesteps both, and preserves the storage type of the blocks.
+function MAK.is_left_isometric(A::BlockMatrix; kwargs...)
+    return MAK.is_left_isometric(copy_dense!(similar_dense(A), A); kwargs...)
 end
-function MAK.is_right_isometric(A::BlockMatrix; atol::Real = 0, rtol::Real = MAK.defaulttol(A), norm = LinearAlgebra.norm)
-    P = A * A'
-    nP = norm(P) # isapprox would use `rtol * max(norm(P), norm(I))`
-    for I in MAK.diagind(P)
-        P[I] -= 1
-    end
-    return norm(P) <= max(atol, rtol * nP) # assume that the norm of I is `sqrt(n)`
+function MAK.is_right_isometric(A::BlockMatrix; kwargs...)
+    return MAK.is_right_isometric(copy_dense!(similar_dense(A), A); kwargs...)
 end
 
 # Make sure sparse blocktensormaps have dense outputs
