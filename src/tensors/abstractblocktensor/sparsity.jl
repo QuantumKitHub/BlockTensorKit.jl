@@ -7,7 +7,7 @@ nonzero_length(t::AbstractBlockTensorMap) = nonzero_length(parent(t))
 
 nonzero_values(A::AbstractArray) = values(A)
 nonzero_keys(A::AbstractArray) = eachindex(IndexCartesian(), A)
-nonzero_pairs(A::AbstractArray) = pairs(A)
+nonzero_pairs(A::AbstractArray) = pairs(IndexCartesian(), A)
 nonzero_length(A::AbstractArray) = length(A)
 
 issparse(t::AbstractTensorMap) = false
