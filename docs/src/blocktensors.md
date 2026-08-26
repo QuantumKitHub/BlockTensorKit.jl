@@ -71,6 +71,7 @@ s[1] += 2 * s[1]
 Slicing operations are also supported, and the `AbstractBlockTensorMap` can be sliced in the same way as an `AbstractArray{AbstractTensorMap}`.
 There is however one elementary difference: as the slices still contain tensors with the same amount of legs, there can be no reduction in the number of dimensions.
 In particular, in contrast to `AbstractArray`, scalar dimensions are not discarded, and as a result, linear index slicing is not allowed.
+Repeated indices duplicate the selected tensors, as they would for an `AbstractArray`.
 
 ```@repl blocktensors
 ndims(t[1, 1, :]) == 3
