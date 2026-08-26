@@ -92,6 +92,45 @@ for (label, t1) in (("dense", rand(V ← one(V))), ("sparse", sprand(V ← one(V
     end
 end
 
+# single-index slicing of a multi-index block tensor takes a different path than the case above
+W = SumSpace(ℂ^2)
+for (label, ts) in (("dense", rand(W ⊗ V ← W)), ("sparse", sprand(W ⊗ V ← W, 0.8)))
+    @testset "$label single-index slicing" begin
+        @test size(ts) == (1, 3, 1)
+        mid = 2:(length(ts) - 1)
+        # a single index must stay as inferrable as the equivalent full-rank slice
+        @test @inferred(ts[mid]) == ts[:, mid, :]
+        @test space(ts[mid]) == space(ts[:, mid, :])
+        @test @inferred(ts[1]) isa TensorMap
+        @test @inferred(ts[:]) == ts
+        @test size(@inferred(ts[[1, 3]])) == (1, 2, 1)
+        @test ts[[1, 3]][1, 2, 1] == ts[1, 3, 1]
+        mask = [true, false, true]
+        @test @inferred(ts[mask]) == ts[:, mask, :]
+    end
+end
+
+# a widened return type propagates into everything built from a slice, so keep every form concrete
+infers_concretely(f, args...) =
+    isconcretetype(Core.Compiler.return_type(f, Tuple{map(typeof, args)...}))
+
+@testset "indexing inference ($label)" for (label, t) in (
+        ("dense", rand(W ⊗ V ← W)), ("sparse", sprand(W ⊗ V ← W, 0.8)),
+        ("dense square", rand(V ⊗ V ← V)), ("sparse square", sprand(V ⊗ V ← V, 0.5)),
+        ("dense vector", rand(V ← one(V))), ("sparse vector", sprand(V ← one(V), 0.8)),
+    )
+    for ind in (1, 2:3, 1:2:3, :, [1, 3], [true, false, true])
+        @test infers_concretely(getindex, t, ind)
+    end
+    ndims(t) == 3 || continue
+    for inds in (
+            (1, 2, 1), (:, :, :), (1, 2:3, 1), (1, [1, 3], 1), (1, [true, false, true], 1),
+            (1:1, 1:2:3, 1:1), ([1, 1, 3], :, :),
+        )
+        @test infers_concretely(getindex, t, inds...)
+    end
+end
+
 # the parent array has its own slicing implementation
 @testset "parent array slicing" begin
     st = sprand(V ⊗ V ⊗ V, 0.5)

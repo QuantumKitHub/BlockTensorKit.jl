@@ -100,12 +100,23 @@ end
         t::AbstractBlockTensorMap, indices::Vararg{Any, M}
     ) where {M}
     M == numind(t) || return _slice_getindex_single(t, indices...)
-    inds = Base.to_indices(t, indices)
-    inds isa NTuple{M, Int} && return parent(t)[inds...]
+    return _slice_getindex_full(t, Base.to_indices(t, indices))
+end
+
+# single block vs. sliced block tensor is chosen by dispatch, so the return type is inferrable
+@propagate_inbounds _slice_getindex_full(
+    t::AbstractBlockTensorMap, inds::NTuple{M, Int}
+) where {M} = parent(t)[inds...]
+@propagate_inbounds function _slice_getindex_full(t::AbstractBlockTensorMap, inds::Tuple)
     tdst = similar(t, space(eachspace(t)[inds...]))
     length(tdst) == 0 && return tdst
     return _copyslice!(tdst, t, inds)
 end
+
+# a mask may consume several dimensions, which `to_indices` cannot infer through the fillers below
+@propagate_inbounds _slice_getindex_single(
+    t::AbstractBlockTensorMap, index::AbstractArray{Bool}
+) = _slice_getindex_single(t, Base.to_index(t, index))
 
 # a single index is only supported when it selects a single nontrivial dimension
 @noinline function _slice_getindex_single(
@@ -113,7 +124,9 @@ end
     ) where {M}
     space(eachspace(t)[indices...]) # errors as before if unsupported
     d = something(findfirst(>(1), size(t)), 1)
-    return _slice_getindex(t, ntuple(i -> i == d ? only(indices) : 1, numind(t))...)
+    # `1:1` rather than `1` keeps `Int` out of the tuple, so the dispatch above stays static
+    inds = ntuple(i -> i == d ? only(indices) : (1:1), numind(t))
+    return _slice_getindex_full(t, Base.to_indices(t, inds))
 end
 
 # TODO: check if this fallback is fair
