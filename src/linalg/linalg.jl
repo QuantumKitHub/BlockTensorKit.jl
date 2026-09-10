@@ -129,8 +129,14 @@ const _TM_CAN_MUL = Union{
     TensorMap, AdjointTensorMap{<:Any, <:Any, <:Any, <:Any, <:TensorMap}, BraidingTensor,
 }
 function _mul!!(C::_TM_CAN_MUL, A::_TM_CAN_MUL, B::_TM_CAN_MUL, α::Number, β::Number)
-    return mul!(C, A, B, α, β)
+    return mul!(C, A, B, _blasscalar(α), _blasscalar(β))
 end
+
+# `LinearAlgebra` cannot handle `One`/`Zero`, which carry the same meaning as `true`/`false`
+# TODO: remove once `VectorInterface` implements the full `Number` interface for these
+_blasscalar(α::Number) = α
+_blasscalar(::One) = true
+_blasscalar(::Zero) = false
 # TODO: optimize other implementations
 
 # ensure that mixes with AbstractBlockTensorMap and AbstractTensorMap behave as expected:
