@@ -128,9 +128,10 @@ end
 function TensorKit._sectors(S::SumSpace, ::Type{I}) where {I}
     s = Set{I}()
     for v in S.spaces
-        s = s ∪ sectors(v)
+        union!(s, sectors(v))
     end
-    return values(s)
+    # sorted for a canonical order, consistent with `GradedSpace` and `blocksectors`
+    return sort!(collect(s))
 end
 
 TensorKit.dim(S::SumSpace, sector::Sector) = sum(v -> dim(v, sector), S.spaces; init = 0)

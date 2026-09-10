@@ -129,6 +129,7 @@ end
 
     @test @constinferred(sectortype(V)) == sectortype(V1)
     @test ((@constinferred sectors(V))...,) == (U1Irrep(0), U1Irrep(1))
+    @test issorted(sectors(V))
     @test length(sectors(V)) == 2
     @test @constinferred(hassector(V, U1Irrep(0)))
     @test !@constinferred(hassector(V, U1Irrep(2)))
@@ -188,7 +189,8 @@ end
     @test unitspace(V) == unitspace(V1)
 
     @test @constinferred(sectortype(V)) == sectortype(V1)
-    @test ((@constinferred sectors(V))...,) == (C1, C0, D1, D0, M) # ordering matters
+    @test ((@constinferred sectors(V))...,) == (C0, C1, M, D0, D1) # sorted order
+    @test issorted(sectors(V))
     @test length(sectors(V)) == 5
     @test @constinferred(hassector(V, M))
     @test !@constinferred(hassector(V, Mop))
