@@ -10,30 +10,13 @@ function VI.scale!(t::AbstractBlockTensorMap, α::Number)
     return t
 end
 
-function VI.scale!(ty::BlockTensorMap, tx::BlockTensorMap, α::Number)
+function VI.scale!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number)
     space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    scale!(parent(ty), parent(tx), α)
-    return ty
-end
-function VI.scale!(ty::SparseBlockTensorMap, tx::SparseBlockTensorMap, α::Number)
-    space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    y_notin_x = setdiff(nonzero_keys(ty), nonzero_keys(tx))
-    x_notin_y = setdiff(nonzero_keys(tx), nonzero_keys(ty))
-    inboth = intersect(nonzero_keys(ty), nonzero_keys(tx))
-
-    # remove elements that are not in tx
-    for k in y_notin_x
-        delete!(ty.data, k)
+    # entries of ty that are structurally zero in tx have to be zeroed out
+    issparse(tx) && zerovector!(ty)
+    for (I, v) in nonzero_pairs(tx)
+        ty[I] = scale!!(ty[I], v, α)
     end
-    # in-place scale elements that are in both
-    for k in inboth
-        ty[k] = scale!(ty[k], tx[k], α)
-    end
-    # new scale for elements in x that are not in y
-    for k in x_notin_y
-        ty[k] = scale(tx[k], α)
-    end
-
     return ty
 end
 
@@ -61,41 +44,27 @@ function VI.add(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Numb
     return add!(scale!(tdst, ty, β), tx, α)
 end
 
-function VI.add!(ty::BlockTensorMap, tx::BlockTensorMap, α::Number, β::Number)
+function VI.add!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number, β::Number)
     space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    add!(parent(ty), parent(tx), α, β)
-    return ty
-end
-function VI.add!(ty::SparseBlockTensorMap, tx::SparseBlockTensorMap, α::Number, β::Number)
-    space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    y_notin_x = setdiff(nonzero_keys(ty), nonzero_keys(tx))
-    x_notin_y = setdiff(nonzero_keys(tx), nonzero_keys(ty))
-    inboth = intersect(nonzero_keys(ty), nonzero_keys(tx))
-
-    for k in y_notin_x
-        ty[k] = scale!!(ty[k], β)
+    isone(β) || scale!(ty, β)
+    for (I, v) in nonzero_pairs(tx)
+        ty[I] = add!!(ty[I], v, α, One())
     end
-    for k in x_notin_y
-        ty[k] = scale(tx[k], α)
-    end
-    for k in inboth
-        ty[k] = add!!(ty[k], tx[k], α, β)
-    end
-
     return ty
 end
 
 # inner
 # -----
-function VI.inner(x::BlockTensorMap, y::BlockTensorMap)
-    space(y) == space(x) || throw(SpaceMismatch())
-    return inner(parent(x), parent(y))
-end
-function VI.inner(x::SparseBlockTensorMap, y::SparseBlockTensorMap)
-    space(x) == space(y) || throw(SpaceMismatch())
-    both_nonzero = intersect(nonzero_keys(x), nonzero_keys(y))
+function VI.inner(x::AbstractBlockTensorMap, y::AbstractBlockTensorMap)
+    space(x) == space(y) || throw(SpaceMismatch("$(space(x)) ≠ $(space(y))"))
     T = VI.promote_inner(x, y)
-    return sum(both_nonzero; init = zero(T)) do k
-        inner(x[k], y[k])
+    # only entries that are nonzero in both contribute
+    ks = if issparse(x) && issparse(y)
+        intersect(nonzero_keys(x), nonzero_keys(y))
+    else
+        nonzero_keys(issparse(y) ? y : x)
+    end
+    return sum(ks; init = zero(T)) do I
+        inner(x[I], y[I])
     end
 end

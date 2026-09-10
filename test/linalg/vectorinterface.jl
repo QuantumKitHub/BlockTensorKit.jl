@@ -14,17 +14,17 @@ Vtr = (
 
 V = Vtr
 
-@testset "VectorInterface $(issparse ? "SparseBlockTensorMap" : "BlockTensorMap")" for issparse in
-    (
-        false, true,
+storagename(sparse) = sparse ? "SparseBlockTensorMap" : "BlockTensorMap"
+makestorage(sparse, W) = sparse ? sprand(Float64, W, 0.5) : rand(W)
+
+@testset "VectorInterface $(storagename(sparse_y)) ← $(storagename(sparse_x))" for (
+        sparse_y, sparse_x,
+    ) in (
+        (false, false), (true, true), (false, true), (true, false),
     )
-    if issparse
-        t = sprand(Float64, *(V[1:3]...) ← *(V[4], V[5]), 0.5)
-        t′ = sprand(Float64, *(V[1:3]...) ← *(V[4], V[5]), 0.5)
-    else
-        t = rand(*(V[1:3]...) ← *(V[4], V[5]))
-        t′ = rand(*(V[1:3]...) ← *(V[4], V[5]))
-    end
+    W = *(V[1:3]...) ← *(V[4], V[5])
+    t = makestorage(sparse_y, W)
+    t′ = makestorage(sparse_x, W)
 
     @testset "scalartype" begin
         @test Float64 === @inferred scalartype(t)
@@ -132,6 +132,15 @@ V = Vtr
         @test @inferred inner(t″, t‴) ≈ conj(α) * β * inner(t, t′)
     end
 
+    @testset "mixed-storage in-place" begin
+        α, β = rand(2)
+        @test @inferred scale!(zerovector(t), t′, α) ≈ scale(t′, α)
+        @test @inferred axpy!(α, t′, deepcopy(t)) ≈ add(t, t′, α)
+        @test @inferred axpby!(α, t′, β, deepcopy(t)) ≈ add(t, t′, α, β)
+        @test @inferred mul!(zerovector(t), α, t′) ≈ scale(t′, α)
+        @test @inferred dot(t, t′) ≈ inner(t, t′)
+    end
+
     @testset "general linalg" begin
         α, β = rand(ComplexF64, 2)
         @test (α * α) * t ≈ α * (α * t)
@@ -141,5 +150,33 @@ V = Vtr
         @test -t ≈ -one(scalartype(t)) * t
         @test inner(β * t′, α * t) ≈ conj(β) * α * conj(inner(t, t′))
         @test inner(t, t′) ≈ conj(inner(t′, t))
+    end
+end
+
+# regression test for #74: heterogeneous summands give interior zero-length coupled blocks
+@testset "mixed storage with interior zero blocks" begin
+    S = Vect[U1Irrep]
+    P = S(0 => 1, 1 => 1, 2 => 1)
+    Vu = SumSpace(S(0 => 1), S(1 => 2), S(-1 => 2))
+    W = (Vu ⊗ SumSpace(P)) ← SumSpace(P)
+
+    tsp = SparseBlockTensorMap{TensorMap{Float64, S, 2, 1, Vector{Float64}}}(undef, W)
+    for (I, Wi) in zip(CartesianIndices(size(tsp)), BlockTensorKit.eachspace(tsp))
+        dim(Wi) == 0 || (tsp[I] = randn(Float64, Wi))
+    end
+    tdn = BlockTensorMap(tsp)
+    @test convert(TensorMap, tdn) ≈ convert(TensorMap, tsp)
+
+    α, β = rand(2)
+    ref = add(tdn, tdn, α, β)
+    for (y, x) in ((tdn, tsp), (tsp, tdn))
+        @test add!(deepcopy(y), x, α, β) ≈ ref
+        @test add(y, x, α, β) ≈ ref
+        @test y + x ≈ add(tdn, tdn)
+        @test norm(y - x) ≈ 0 atol = 1.0e-12
+        @test scale!(zerovector(y), x, α) ≈ scale(tdn, α)
+        @test axpy!(α, x, deepcopy(y)) ≈ add(tdn, tdn, α)
+        @test inner(y, x) ≈ inner(tdn, tdn)
+        @test dot(y, x) ≈ inner(tdn, tdn)
     end
 end
