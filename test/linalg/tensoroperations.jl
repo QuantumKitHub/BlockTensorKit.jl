@@ -73,6 +73,42 @@ end
 end
 ##
 
+# The planar entry points are reached through `transpose!`, `trace_permute!` and `contract!`
+# rather than through methods defined here, so they are pinned separately: a change in how
+# TensorKit routes them would otherwise go unnoticed until it reached users.
+@testset "planar entry points" begin
+    for T in (Float32, ComplexF32), Asparse in (false, true)
+        A = !Asparse ? randn(T, W) : sprand(T, W, 0.5)
+        Ad = convert(TensorMap, A)
+        # `(p₁..., reverse(p₂)...)` must be a cyclic rotation of (1, 2, 3, 5, 4) for this `W`
+        for p in (((1, 2, 3), (4, 5)), ((1, 2), (4, 5, 3)), ((2, 3, 5), (1, 4)), ((3, 5, 4), (2, 1)))
+            C = TensorOperations.tensoralloc_add(T, A, p, false, Val(false))
+            Cd = TensorOperations.tensoralloc_add(T, Ad, p, false, Val(false))
+            TensorKit.planaradd!(C, A, p, one(T), zero(T))
+            TensorKit.planaradd!(Cd, Ad, p, one(T), zero(T))
+            @test convert(TensorMap, C) ≈ Cd
+            @test norm(C) ≈ norm(A)
+        end
+
+        # the planar order of a 2 <- 2 tensor is (1, 2, 4, 3), so legs 2 and 4 are the
+        # cyclically adjacent pair that can be traced
+        WB = W[1] ⊗ W[2] ← W[3] ⊗ W[2]
+        B = !Asparse ? randn(T, WB) : sprand(T, WB, 0.7)
+        @planar C1[a; b] := B[a c; b c]
+        @planar C2[a; b] := convert(TensorMap, B)[a c; b c]
+        @test convert(TensorMap, C1) ≈ C2
+
+        WA, WB = W[1] ← W[3], W[3] ← W[2]'
+        D = !Asparse ? randn(T, WA) : sprand(T, WA, 0.7)
+        E = !Asparse ? randn(T, WB) : sprand(T, WB, 0.7)
+        @planar F1[a; b] := D[a; c] * E[c; b]
+        @planar F2[a; b] := convert(TensorMap, D)[a; c] * convert(TensorMap, E)[c; b]
+        @test convert(TensorMap, F1) ≈ F2
+    end
+end
+
+##
+
 @testset "tensortrace" begin
     for T in (Float32, ComplexF32)
         A = randn(T, W[1] ⊗ W[2] ← W[2] ⊗ W[3])
