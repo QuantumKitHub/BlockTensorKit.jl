@@ -3,6 +3,7 @@ using BlockTensorKit
 using TensorKit
 using TensorOperations
 using Random
+using LinearAlgebra: norm
 
 ##
 Vtr = (
@@ -46,6 +47,28 @@ end
             convert(TensorMap, E)[a, b, c, d, e] +
             α * conj(convert(TensorMap, D)[c, b, a, e, d])
         @test convert(TensorMap, F1) ≈ F2
+    end
+end
+##
+
+# `TO.tensoradd!` is called directly here rather than through `@tensor`, so that the blockwise
+# implementations stay covered independently of how TensorKit routes its index manipulations.
+@testset "tensoradd! entry point" begin
+    for T in (Float32, ComplexF32), Asparse in (false, true), p in (((3, 2, 1, 5, 4), ()), ((4, 5), (1, 3, 2))),
+            conjA in (false, true)
+        A = !Asparse ? randn(T, W) : sprand(T, W, 0.5)
+        C = TensorOperations.tensoralloc_add(T, A, p, conjA, Val(false))
+        Cref = TensorOperations.tensoralloc_add(T, convert(TensorMap, A), p, conjA, Val(false))
+        TensorOperations.tensoradd!(
+            C, A, p, conjA, one(T), zero(T),
+            TensorOperations.DefaultBackend(), TensorOperations.DefaultAllocator()
+        )
+        TensorOperations.tensoradd!(
+            Cref, convert(TensorMap, A), p, conjA, one(T), zero(T),
+            TensorOperations.DefaultBackend(), TensorOperations.DefaultAllocator()
+        )
+        @test convert(TensorMap, C) ≈ Cref
+        @test norm(C) ≈ norm(A)
     end
 end
 ##
