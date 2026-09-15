@@ -3,6 +3,7 @@ using BlockTensorKit
 using TensorKit
 using TensorOperations
 using Random
+using LinearAlgebra: norm
 
 ##
 Vtr = (
@@ -48,6 +49,64 @@ end
         @test convert(TensorMap, F1) ≈ F2
     end
 end
+##
+
+# `TO.tensoradd!` is called directly here rather than through `@tensor`, so that the blockwise
+# implementations stay covered independently of how TensorKit routes its index manipulations.
+@testset "tensoradd! entry point" begin
+    for T in (Float32, ComplexF32), Asparse in (false, true), p in (((3, 2, 1, 5, 4), ()), ((4, 5), (1, 3, 2))),
+            conjA in (false, true)
+        A = !Asparse ? randn(T, W) : sprand(T, W, 0.5)
+        C = TensorOperations.tensoralloc_add(T, A, p, conjA, Val(false))
+        Cref = TensorOperations.tensoralloc_add(T, convert(TensorMap, A), p, conjA, Val(false))
+        TensorOperations.tensoradd!(
+            C, A, p, conjA, one(T), zero(T),
+            TensorOperations.DefaultBackend(), TensorOperations.DefaultAllocator()
+        )
+        TensorOperations.tensoradd!(
+            Cref, convert(TensorMap, A), p, conjA, one(T), zero(T),
+            TensorOperations.DefaultBackend(), TensorOperations.DefaultAllocator()
+        )
+        @test convert(TensorMap, C) ≈ Cref
+        @test norm(C) ≈ norm(A)
+    end
+end
+##
+
+# The planar entry points are reached through `transpose!`, `trace_permute!` and `contract!`
+# rather than through methods defined here, so they are pinned separately: a change in how
+# TensorKit routes them would otherwise go unnoticed until it reached users.
+@testset "planar entry points" begin
+    for T in (Float32, ComplexF32), Asparse in (false, true)
+        A = !Asparse ? randn(T, W) : sprand(T, W, 0.5)
+        Ad = convert(TensorMap, A)
+        # `(p₁..., reverse(p₂)...)` must be a cyclic rotation of (1, 2, 3, 5, 4) for this `W`
+        for p in (((1, 2, 3), (4, 5)), ((1, 2), (4, 5, 3)), ((2, 3, 5), (1, 4)), ((3, 5, 4), (2, 1)))
+            C = TensorOperations.tensoralloc_add(T, A, p, false, Val(false))
+            Cd = TensorOperations.tensoralloc_add(T, Ad, p, false, Val(false))
+            TensorKit.planaradd!(C, A, p, one(T), zero(T))
+            TensorKit.planaradd!(Cd, Ad, p, one(T), zero(T))
+            @test convert(TensorMap, C) ≈ Cd
+            @test norm(C) ≈ norm(A)
+        end
+
+        # the planar order of a 2 <- 2 tensor is (1, 2, 4, 3), so legs 2 and 4 are the
+        # cyclically adjacent pair that can be traced
+        WB = W[1] ⊗ W[2] ← W[3] ⊗ W[2]
+        B = !Asparse ? randn(T, WB) : sprand(T, WB, 0.7)
+        @planar C1[a; b] := B[a c; b c]
+        @planar C2[a; b] := convert(TensorMap, B)[a c; b c]
+        @test convert(TensorMap, C1) ≈ C2
+
+        WA, WB = W[1] ← W[3], W[3] ← W[2]'
+        D = !Asparse ? randn(T, WA) : sprand(T, WA, 0.7)
+        E = !Asparse ? randn(T, WB) : sprand(T, WB, 0.7)
+        @planar F1[a; b] := D[a; c] * E[c; b]
+        @planar F2[a; b] := convert(TensorMap, D)[a; c] * convert(TensorMap, E)[c; b]
+        @test convert(TensorMap, F1) ≈ F2
+    end
+end
+
 ##
 
 @testset "tensortrace" begin
