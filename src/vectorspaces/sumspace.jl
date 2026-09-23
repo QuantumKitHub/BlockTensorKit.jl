@@ -180,6 +180,18 @@ function TensorKit.rightunitspace(S::SumSpace)
 end
 TensorKit.isunitspace(S::SumSpace) = !isempty(S) && all(isunitspace, S.spaces)
 
+# a `SumSpace` must, as a whole, be homogeneously colored: all of its sectors (across all
+# components) share a single left and right unit, exactly like a plain `GradedSpace`.
+function TK._leftrightunit(S::SumSpace)
+    s = sectors(S)
+    isempty(s) && return (nothing, nothing)
+    c = first(s)
+    l, r = TK.leftunit(c), TK.rightunit(c)
+    all(x -> TK.leftunit(x) == l && TK.rightunit(x) == r, s) ||
+        throw(SpaceMismatch(lazy"components of $S do not share a single left and right unit"))
+    return (l, r)
+end
+
 # Promotion and conversion
 # ------------------------
 Base.promote_rule(::Type{S}, ::Type{SumSpace{S}}) where {S <: ElementarySpace} = SumSpace{S}

@@ -160,7 +160,6 @@ end
     using Test, TestExtras
 
     using TensorKit: hassector
-    using BlockTensorKit: ⊕
 
     I = IsingBimodule
 
@@ -186,7 +185,9 @@ end
     @test @constinferred(dual(V)) == @constinferred(conj(V)) == @constinferred(adjoint(V))
     @test field(V) == ℂ
 
-    @test unitspace(V) == unitspace(V1)
+    @test_throws ArgumentError unitspace(V1)
+    @test_throws ArgumentError unitspace(V)
+    @test_throws ArgumentError unitspace(SumSpace(V1))
 
     @test @constinferred(sectortype(V)) == sectortype(V1)
     @test ((@constinferred sectors(V))...,) == (C0, C1, M, D0, D1) # sorted order
@@ -208,20 +209,26 @@ end
     for W in [WC, WD]
         @test isunitspace(W)
         @test W == @constinferred(leftunitspace(W)) == @constinferred(rightunitspace(W))
-        @test unitspace(typeof(W)) == ⊞(Vect[IsingBimodule]((1, 1, 0) => 1, (2, 2, 0) => 1))
+        @test_throws ArgumentError unitspace(typeof(W))
     end
 
-    @test_throws ArgumentError leftunitspace(V)
-    @test_throws ArgumentError rightunitspace(V)
-    @test leftunitspace(SumSpace(V1, V3)) == WC
-    @test rightunitspace(SumSpace(V2, V3)) == WD
+    # a `SumSpace` is only well-defined as a single left/right unit when ALL of its
+    # components, taken together, are homogeneously colored -- exactly like a plain
+    # `GradedSpace`. Combinations that mix components with different left and/or right
+    # units are rejected, even if they happen to agree on one side.
+    @test_throws SpaceMismatch leftunitspace(V)
+    @test_throws SpaceMismatch rightunitspace(V)
+    @test_throws SpaceMismatch leftunitspace(SumSpace(V1, V3))
+    @test_throws SpaceMismatch rightunitspace(SumSpace(V2, V3))
     @test leftunitspace(WMop) == WD && rightunitspace(WMop) == WC
     @test leftunitspace(WM) == WC && rightunitspace(WM) == WD
-    @test unitspace(WM) == unitspace(WMop) == ⊞(Vect[IsingBimodule]((1, 1, 0) => 1, (2, 2, 0) => 1))
+    @test_throws ArgumentError unitspace(WM)
+    @test_throws ArgumentError unitspace(WMop)
 
     Wempty = SumSpace(Vect[I]())
     Wzero = zerospace(V)
-    @test unitspace(Wempty) == unitspace(Wzero)
+    @test_throws ArgumentError unitspace(Wempty)
+    @test_throws ArgumentError unitspace(Wzero)
     for f in (leftunitspace, rightunitspace)
         @test_throws ArgumentError f(Wempty)
     end
@@ -231,9 +238,9 @@ end
     VMD = SumSpace(V2, V3)
 
     @test @constinferred(⊞(V, V)) == SumSpace(vcat(V.spaces, V.spaces))
-    @test @constinferred(⊞(VCM, unitspace(VCM))) == SumSpace(vcat(VCM.spaces, unitspace(VCM).spaces))
-    @test @constinferred(⊞(VCM, leftunitspace(VCM))) == SumSpace(vcat(VCM.spaces, leftunitspace(VCM).spaces))
-    @test @constinferred(⊞(VMD, rightunitspace(VMD))) == SumSpace(vcat(VMD.spaces, rightunitspace(VMD).spaces))
+    @test_throws ArgumentError unitspace(VCM)
+    @test_throws SpaceMismatch leftunitspace(VCM)
+    @test_throws SpaceMismatch rightunitspace(VMD)
 
     @test @constinferred(⊞(V, V, V, V)) == SumSpace(repeat(V.spaces, 4))
     @test @constinferred(fuse(VC, VC)) ≅ SumSpace(Vect[I](C0 => 8, C1 => 8))
@@ -243,18 +250,19 @@ end
     @test flip(V) ≅ V
     @test flip(V) ≾ V
     @test flip(V) ≿ V
-    @test V ≺ ⊕(V, V)
-    @test !(V ≻ ⊕(V, V))
+    @test V ≺ ⊞(V, V)
+    @test !(V ≻ ⊞(V, V))
 
     # blocksectors tests
     @test issetequal(@constinferred(blocksectors(one(V) ← one(V))), (C0, D0))
-    @test issetequal(@constinferred(blocksectors(V ← V)), sectors(V))
+    @test_throws SpaceMismatch V ← V # `V` itself is not homogeneously colored
     @test @constinferred(blocksectors(one(V))) == [C0, D0]
-    for v in [VC, VCM, VMD]
-        @test issetequal(@constinferred(blocksectors(v^2)), blocksectors(v ← v))
+    @test issetequal(@constinferred(blocksectors(VC^2)), blocksectors(VC ← VC))
+    for v in [VCM, VMD]
+        @test_throws SpaceMismatch v^2 # not homogeneously colored
     end
     for v in [WM, WMop]
-        @test isempty(@constinferred(blocksectors(v^2)))
+        @test_throws SpaceMismatch v^2
         @test issetequal(@constinferred(blocksectors(v ← v)), blocksectors(v))
     end
 end
