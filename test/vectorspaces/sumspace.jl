@@ -160,7 +160,6 @@ end
     using Test, TestExtras
 
     using TensorKit: hassector
-    using BlockTensorKit: ⊕
 
     I = IsingBimodule
 
@@ -186,7 +185,8 @@ end
     @test @constinferred(dual(V)) == @constinferred(conj(V)) == @constinferred(adjoint(V))
     @test field(V) == ℂ
 
-    @test unitspace(V) == unitspace(V1)
+    @test_throws ArgumentError unitspace(V1)
+    @test unitspace(V) == unitspace(SumSpace(V1)) == ⊞(Vect[I](C0 => 1), Vect[I](D0 => 1))
 
     @test @constinferred(sectortype(V)) == sectortype(V1)
     @test ((@constinferred sectors(V))...,) == (C0, C1, M, D0, D1) # sorted order
@@ -208,7 +208,7 @@ end
     for W in [WC, WD]
         @test isunitspace(W)
         @test W == @constinferred(leftunitspace(W)) == @constinferred(rightunitspace(W))
-        @test unitspace(typeof(W)) == ⊞(Vect[IsingBimodule]((1, 1, 0) => 1, (2, 2, 0) => 1))
+        @test unitspace(typeof(W)) == ⊞(Vect[I](C0 => 1), Vect[I](D0 => 1))
     end
 
     @test_throws ArgumentError leftunitspace(V)
@@ -217,7 +217,7 @@ end
     @test rightunitspace(SumSpace(V2, V3)) == WD
     @test leftunitspace(WMop) == WD && rightunitspace(WMop) == WC
     @test leftunitspace(WM) == WC && rightunitspace(WM) == WD
-    @test unitspace(WM) == unitspace(WMop) == ⊞(Vect[IsingBimodule]((1, 1, 0) => 1, (2, 2, 0) => 1))
+    @test unitspace(WM) == unitspace(WMop) == ⊞(Vect[I](C0 => 1), Vect[I](D0 => 1))
 
     Wempty = SumSpace(Vect[I]())
     Wzero = zerospace(V)
@@ -243,8 +243,8 @@ end
     @test flip(V) ≅ V
     @test flip(V) ≾ V
     @test flip(V) ≿ V
-    @test V ≺ ⊕(V, V)
-    @test !(V ≻ ⊕(V, V))
+    @test V ≺ ⊞(V, V)
+    @test !(V ≻ ⊞(V, V))
 
     # blocksectors tests
     @test issetequal(@constinferred(blocksectors(one(V) ← one(V))), (C0, D0))
@@ -254,7 +254,7 @@ end
         @test issetequal(@constinferred(blocksectors(v^2)), blocksectors(v ← v))
     end
     for v in [WM, WMop]
-        @test isempty(@constinferred(blocksectors(v^2)))
+        @test_throws SpaceMismatch v^2
         @test issetequal(@constinferred(blocksectors(v ← v)), blocksectors(v))
     end
 end

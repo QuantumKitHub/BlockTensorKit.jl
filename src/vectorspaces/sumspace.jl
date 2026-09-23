@@ -169,14 +169,37 @@ function TensorKit.fuse(V1::S, V2::S) where {S <: SumSpace}
     return SumSpace(vec([fuse(v1, v2) for (v1, v2) in Base.product(V1.spaces, V2.spaces)]))
 end
 
-TensorKit.unitspace(S::Type{<:SumSpace}) = SumSpace(TensorKit.unitspace(eltype(S)))
+function TensorKit.unitspace(S::Type{<:SumSpace})
+    V = eltype(S)
+    I = sectortype(V)
+    TK.UnitStyle(I) isa TK.GenericUnit || return SumSpace(TensorKit.unitspace(V))
+    # elementary spaces must be homogeneously colored, so every simple unit gets its own component
+    return SumSpace([V(u => 1) for u in TK.allunits(I)])
+end
 TensorKit.zerospace(::Type{SumSpace{S}}) where {S} = SumSpace{S}()
 
+# distinct left (or right) units of the non-empty components, which are each homogeneously colored
+_distinctunits(f, S::SumSpace) = unique!([u for u in map(f, S.spaces) if !isnothing(u)])
+
 function TensorKit.leftunitspace(S::SumSpace)
-    return SumSpace(leftunitspace(oplus(S)))
+    TK.UnitStyle(sectortype(S)) isa TK.SimpleUnit && return unitspace(S)
+    units = _distinctunits(TK._leftunit, S)
+    isempty(units) && throw(ArgumentError("Cannot determine the left unit of an empty space"))
+    length(units) == 1 || throw(ArgumentError(lazy"components of $S do not share a single left unit"))
+    return SumSpace(eltype(S)(only(units) => 1))
 end
 function TensorKit.rightunitspace(S::SumSpace)
-    return SumSpace(rightunitspace(oplus(S)))
+    TK.UnitStyle(sectortype(S)) isa TK.SimpleUnit && return unitspace(S)
+    units = _distinctunits(TK._rightunit, S)
+    isempty(units) && throw(ArgumentError("Cannot determine the right unit of an empty space"))
+    length(units) == 1 || throw(ArgumentError(lazy"components of $S do not share a single right unit"))
+    return SumSpace(eltype(S)(only(units) => 1))
+end
+# a unit shared by all components constrains the coloring; otherwise it acts as a wildcard
+function TK._leftrightunit(S::SumSpace)
+    ls = _distinctunits(TK._leftunit, S)
+    rs = _distinctunits(TK._rightunit, S)
+    return (length(ls) == 1 ? only(ls) : nothing, length(rs) == 1 ? only(rs) : nothing)
 end
 TensorKit.isunitspace(S::SumSpace) = !isempty(S) && all(isunitspace, S.spaces)
 
