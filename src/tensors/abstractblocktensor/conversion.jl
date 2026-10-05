@@ -2,25 +2,22 @@
 # ----------
 
 function _copy_subblocks!(tdst, tsrc)
-    S = spacetype(tsrc)
     N₁, N₂ = numout(tsrc), numin(tsrc)
-    for ((f₁, f₂), arr) in subblocks(tdst)
-        blockax = ntuple(N₁ + N₂) do i
-            return if i <= N₁
-                blockedrange(map(Base.Fix2(dim, f₁.uncoupled[i]), space(tsrc, i)))
-            else
-                blockedrange(map(Base.Fix2(dim, f₂.uncoupled[i - N₁]), space(tsrc, i)'))
-            end
+    offsets = ntuple(i -> _sumspace_offsets(i <= N₁ ? codomain(tsrc)[i] : domain(tsrc)[i - N₁]), N₁ + N₂)
+    # a single `SubblockIterator` holds the structure: `tdst[f₁, f₂]` would look it up in TensorKit's locked cache every time
+    dstblocks = subblocks(tdst)
+    for (k, v) in nonzero_pairs(tsrc), ((f₁, f₂), src) in subblocks(v)
+        ranges = map(offsets, (f₁.uncoupled..., f₂.uncoupled...), Tuple(k)) do o, c, kᵢ
+            return (o[c][kᵢ] + 1):o[c][kᵢ + 1]
         end
-
-        for (k, v) in nonzero_pairs(tsrc)
-            indices = getindex.(blockax, Block.(Tuple(k)))
-            arr_slice = arr[indices...]
-            # need to check for empty since fusion tree pair might not be present
-            isempty(arr_slice) || copy!(arr_slice, v[f₁, f₂])
-        end
+        copy!(dstblocks[(f₁, f₂)][ranges...], src)
     end
     return tdst
+end
+
+# for every sector `c` of `V`, the cumulative dimensions of `c` over the summands of `V`
+function _sumspace_offsets(V)
+    return SectorDict{sectortype(V), Vector{Int}}(c => cumsum(vcat(0, [dim(Vᵢ, c) for Vᵢ in V])) for c in sectors(V))
 end
 
 function Base.convert(::Type{TensorMap}, t::AbstractBlockTensorMap)
