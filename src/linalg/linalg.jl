@@ -157,10 +157,34 @@ for (TC, TA, TB) in Iterators.product(
     end
 end
 
-function LinearAlgebra.norm(tA::BlockTensorMap, p::Real = 2)
+function LinearAlgebra.norm(tA::AbstractBlockTensorMap, p::Real = 2)
     vals = nonzero_values(tA)
     isempty(vals) && return norm(zero(scalartype(tA)), p)
-    return LinearAlgebra.norm(norm.(vals), p)
+    return LinearAlgebra.norm(Iterators.map(Base.Fix2(norm, p), vals), p)
+end
+
+function Base.:(==)(t1::AbstractBlockTensorMap, t2::AbstractBlockTensorMap)
+    space(t1) == space(t2) || return false
+    for I in nonzero_keys(t1)
+        v1 = t1[I]
+        (haskey(t2, I) ? v1 == t2[I] : iszero(norm(v1))) || return false
+    end
+    if issparse(t1)
+        for I in nonzero_keys(t2)
+            haskey(t1, I) || iszero(norm(t2[I])) || return false
+        end
+    end
+    return true
+end
+
+function LinearAlgebra.tr(t::AbstractBlockTensorMap)
+    domain(t) == codomain(t) ||
+        throw(SpaceMismatch("Trace of a tensor only exist when domain == codomain"))
+    s = zero(scalartype(t)) * zero(TK.dimscalartype(sectortype(t)))
+    for I in nonzero_keys(t)
+        TT.getindices(I.I, codomainind(t)) == TT.getindices(I.I, domainind(t)) && (s += tr(t[I]))
+    end
+    return s
 end
 
 for f in (:real, :imag)
@@ -173,7 +197,7 @@ for f in (:real, :imag)
             end
             return t′
         else
-            msg = "`$f` has not been implemented for `BlockTensorMap{$(S)}`."
+            msg = "`$f` has not been implemented for `BlockTensorMap{$(spacetype(t))}`."
             throw(ArgumentError(msg))
         end
     end
@@ -208,7 +232,7 @@ function LinearAlgebra.lmul!(D::DiagonalTensorMap, t::AbstractBlockTensorMap)
     domain(D) == codomain(t) || throw(SpaceMismatch())
     TensorKit.foreachblock(t, D) do c, (tblock, Dblock)
         tblock′ = lmul!(Dblock, copy_dense!(similar_dense(tblock), tblock))
-        tblock === tblock′ || copyto!(tblock, tblock′)
+        tblock === tblock′ || copy_blocks!(tblock, tblock′)
         return tblock
     end
     return t
@@ -218,7 +242,7 @@ function LinearAlgebra.rmul!(t::AbstractBlockTensorMap, D::DiagonalTensorMap)
     codomain(D) == domain(t) || throw(SpaceMismatch())
     TensorKit.foreachblock(t, D) do c, (tblock, Dblock)
         tblock′ = rmul!(copy_dense!(similar_dense(tblock), tblock), Dblock)
-        tblock === tblock′ || copyto!(tblock, tblock′)
+        tblock === tblock′ || copy_blocks!(tblock, tblock′)
         return tblock
     end
     return t

@@ -145,6 +145,34 @@ end
     end
 end
 
+@testset "norm, ==, tr: test via conversion" begin
+    W = V1 ⊗ V2 ← V1 ⊗ V2
+    for T in (Float64, ComplexF64)
+        t = sprand(T, W, 0.5)
+        t′ = convert(TensorMap, t)
+        for p in (1, 2, 3, Inf)
+            @test norm(t, p) ≈ norm(t′, p)
+        end
+        @test tr(t) ≈ tr(t′)
+        @test t == copy(t)
+        ts, td = SparseBlockTensorMap(t), BlockTensorMap(t)
+        @test t == ts == td
+        @test td == ts
+        @test td != 2 * ts
+        @test ts != 2 * td
+        @test norm(ts, 1) ≈ norm(td, 1)
+        @test t != 2 * t
+        t2 = copy(t)
+        t2[1] = zero(t2[1]) + t2[1]
+        @test t2 == t
+        @test (t2 + t) != t
+        @test t != rand(T, V1 ⊗ V2 ← V1)
+        @test iszero(norm(spzeros(T, W)))
+        @test spzeros(T, W) == zero(t)
+        @test iszero(tr(spzeros(T, W)))
+    end
+end
+
 @testset "Basic linear algebra: test via conversion" begin
     W = V1 ⊗ V2 ⊗ V3 ← V4 ⊗ V5
     for T in (Float32, ComplexF64)
