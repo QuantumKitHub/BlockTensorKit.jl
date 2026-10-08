@@ -25,7 +25,9 @@ function TO.tensoradd!(
     p_lin = (pA[1]..., pA[2]...)
     @inbounds for (I, v) in nonzero_pairs(A)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        C[I′] = TO.tensoradd!(C[I′], v, pA, conjA, α, One(), backend, allocator)
+        C[I′] = TO.tensoradd!(
+            getindex!(C, I′, allocator), v, pA, conjA, α, One(), backend, allocator
+        )
     end
     return C
 end
@@ -116,7 +118,7 @@ function _tensoralloc(
     C = ttype(undef_blocks, structure)
     Vs = eachspace(C)
     for I in keys
-        C[I] = TO.tensoralloc(eltype(C), Vs[I], istemp, allocator)
+        haskey(C, I) || (C[I] = TO.tensoralloc(eltype(C), Vs[I], istemp, allocator))
     end
     return C
 end
@@ -160,16 +162,30 @@ function TO.tensoralloc_contract(
     return _tensoralloc(ttype, structure, keys, istemp, allocator)
 end
 
-# temporaries derived from `C` must already contain every block the contraction produces
+# contract directly into `C` when it is a valid BLAS destination, otherwise go through a
+# temporary holding only the product blocks instead of a copy of all blocks of `C`
 function TO.tensorcontract!(
         C::SparseBlockTensorMap,
         A::BlockOrAdjoint, pA::Index2Tuple, conjA::Bool,
         B::BlockOrAdjoint, pB::Index2Tuple, conjB::Bool,
         pAB::Index2Tuple, α::Number, β::Number, backend, allocator
     )
-    for I in contract_keys(A, pA, B, pB, pAB)
-        getindex!(C, I)
+    ipAB = TO.oindABinC(pAB, pA, pB)
+    if TO.isblasdestination(C, ipAB) || TO.isblasdestination(C, reverse(ipAB))
+        foreach(I -> getindex!(C, I, allocator), contract_keys(A, pA, B, pB, pAB))
+        return _tensorcontract!(C, A, pA, conjA, B, pB, conjB, pAB, α, β, backend, allocator)
     end
+    N₁ = length(pA[1])
+    pAB′ = (ntuple(identity, N₁), ntuple(i -> N₁ + i, length(pB[2])))
+    AB = TO.tensoralloc_contract(
+        scalartype(C), A, pA, conjA, B, pB, conjB, pAB′, Val(true), allocator
+    )
+    _tensorcontract!(AB, A, pA, conjA, B, pB, conjB, pAB′, One(), Zero(), backend, allocator)
+    TO.tensoradd!(C, AB, pAB, false, α, β, backend, allocator)
+    TO.tensorfree!(AB, allocator)
+    return C
+end
+function _tensorcontract!(C, A, pA, conjA, B, pB, conjB, pAB, α, β, backend, allocator)
     return @invoke TO.tensorcontract!(
         C::AbstractTensorMap,
         A::AbstractTensorMap, pA::Index2Tuple, conjA::Bool,

@@ -189,6 +189,16 @@ function Base.delete!(t::SparseBlockTensorMap{TT}, I::Vararg{Int, N}) where {TT,
     return delete!(t, CartesianIndex(I...))
 end
 
+# missing blocks of a destination are obtained from the allocator of the operation
+@propagate_inbounds getindex!(
+    t::SparseBlockTensorMap, I::CartesianIndex, ::TO.DefaultAllocator
+) = getindex!(t, I)
+@propagate_inbounds function getindex!(t::SparseBlockTensorMap, I::CartesianIndex, allocator)
+    haskey(t, I) && return t[I]
+    tI = TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator)
+    return t[I] = zerovector!(tI)
+end
+
 # Show
 # ----
 function Base.showarg(io::IO, t::SparseBlockTensorMap, toplevel::Bool)

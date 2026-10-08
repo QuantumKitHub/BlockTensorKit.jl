@@ -88,6 +88,8 @@ end
     getindex!(parent(t), I...)
 @propagate_inbounds getindex!(t::AbstractBlockTensorMap, I::CartesianIndex{N}) where {N} =
     getindex!(parent(t), I)
+# missing blocks of a destination are obtained from the allocator of the operation
+@propagate_inbounds getindex!(t::AbstractBlockTensorMap, I::CartesianIndex, allocator) = t[I]
 
 # slicing getindex needs to correctly allocate output blocktensor:
 @propagate_inbounds Base.getindex(t::AbstractBlockTensorMap, indices::Vararg{SliceIndex}) =

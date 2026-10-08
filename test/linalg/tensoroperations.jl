@@ -154,15 +154,17 @@ end
 ##
 
 struct TrackingAllocator
-    live::Set{UInt}
-    foreign::Base.RefValue{Int}
+    live::Set{UInt} # handed out and not freed yet
+    temps::Set{UInt} # handed out as temporaries
+    foreign::Base.RefValue{Int} # freed arrays that were not handed out by the allocator
 end
-TrackingAllocator() = TrackingAllocator(Set{UInt}(), Ref(0))
+TrackingAllocator() = TrackingAllocator(Set{UInt}(), Set{UInt}(), Ref(0))
 function TensorOperations.tensoralloc(
-        ::Type{A}, structure, ::Val, allocator::TrackingAllocator
-    ) where {A <: AbstractArray}
+        ::Type{A}, structure, ::Val{istemp}, allocator::TrackingAllocator
+    ) where {A <: AbstractArray, istemp}
     x = fill!(TensorOperations.tensoralloc(A, structure, Val(false)), NaN)
     push!(allocator.live, objectid(x))
+    istemp && push!(allocator.temps, objectid(x))
     return x
 end
 function TensorOperations.tensorfree!(x::AbstractArray, allocator::TrackingAllocator)
@@ -172,6 +174,12 @@ function TensorOperations.tensorfree!(x::AbstractArray, allocator::TrackingAlloc
         allocator.foreign[] += 1
     end
     return nothing
+end
+function check_allocator(f)
+    allocator = TrackingAllocator()
+    @test f(allocator) ≈ f(TensorOperations.DefaultAllocator())
+    @test allocator.foreign[] == 0
+    return @test isdisjoint(allocator.live, allocator.temps)
 end
 
 @testset "allocator only frees what it allocated ($(sectortype(a)))" for (a, b, c) in (
@@ -185,20 +193,35 @@ end
     A = sprand(Float64, a ⊗ b ← c, 0.4)
     B = sprand(Float64, c ⊗ b' ← a, 0.4)
     D = sprand(Float64, a ← b, 0.4)
+    E = sprand(Float64, a ← b, 0.4)
+    X = sprand(Float64, a ⊗ b ← a ⊗ b, 0.5)
 
-    allocator = TrackingAllocator()
-    @tensor allocator = allocator E[x; q] := A[x z; w] * B[w z; y] * D[y; q]
-    @tensor Eref[x; q] := A[x z; w] * B[w z; y] * D[y; q]
-    @test E ≈ Eref
-    @test allocator.foreign[] == 0
+    check_allocator() do al
+        return @tensor allocator = al R[x; q] := A[x z; w] * B[w z; y] * D[y; q]
+    end
+    check_allocator() do al # temporary receiving blocks outside of its initial pattern
+        return @tensor allocator = al R[x; q] := A[x z; w] * B[w z; y] * (D[y; q] + 2 * E[y; q])
+    end
+    check_allocator() do al # several blocks of `X` are traced into the same output block
+        return @tensor allocator = al R[x; q] := X[x z; y z] * D[y; q]
+    end
+    check_allocator() do al
+        return @planar allocator = al R[x; q] := A[x z; w] * B[w z; y] * D[y; q]
+    end
 
-    @tensor C[x y; p q] := A[x q; w] * B[w p; y]
-    C = spzeros(Float64, space(C))
-    C[1, 1, 1, 1] = randn(Float64, space(C[1, 1, 1, 1]))
-    Cref = copy(C)
-    allocator = TrackingAllocator()
-    @tensor allocator = allocator C[x y; p q] += A[x q; w] * B[w p; y]
-    @tensor Cref[x y; p q] += A[x q; w] * B[w p; y]
-    @test C ≈ Cref
-    @test allocator.foreign[] == 0
+    # permuted and BLAS-compatible destinations, without and with blocks outside of the product
+    @tensor C1[x y; p q] := A[x q; w] * B[w p; y]
+    @tensor C2[x q; p y] := A[x q; w] * B[w p; y]
+    for C in (spzeros(Float64, space(C1)), sprand(Float64, space(C1), 1.0))
+        check_allocator() do al
+            C′ = copy(C)
+            return @tensor allocator = al C′[x y; p q] += A[x q; w] * B[w p; y]
+        end
+    end
+    for C in (spzeros(Float64, space(C2)), sprand(Float64, space(C2), 1.0))
+        check_allocator() do al
+            C′ = copy(C)
+            return @tensor allocator = al C′[x q; p y] += A[x q; w] * B[w p; y]
+        end
+    end
 end
