@@ -154,17 +154,15 @@ end
 ##
 
 struct TrackingAllocator
-    live::Set{UInt} # handed out and not freed yet
-    temps::Set{UInt} # handed out as temporaries
-    foreign::Base.RefValue{Int} # freed arrays that were not handed out by the allocator
+    live::Set{UInt} # temporaries that were handed out and not freed yet
+    foreign::Base.RefValue{Int} # freed arrays that were not handed out as temporaries
 end
-TrackingAllocator() = TrackingAllocator(Set{UInt}(), Set{UInt}(), Ref(0))
+TrackingAllocator() = TrackingAllocator(Set{UInt}(), Ref(0))
 function TensorOperations.tensoralloc(
         ::Type{A}, structure, ::Val{istemp}, allocator::TrackingAllocator
     ) where {A <: AbstractArray, istemp}
     x = fill!(TensorOperations.tensoralloc(A, structure, Val(false)), NaN)
-    push!(allocator.live, objectid(x))
-    istemp && push!(allocator.temps, objectid(x))
+    istemp && push!(allocator.live, objectid(x))
     return x
 end
 function TensorOperations.tensorfree!(x::AbstractArray, allocator::TrackingAllocator)
@@ -179,7 +177,7 @@ function check_allocator(f)
     allocator = TrackingAllocator()
     @test f(allocator) ≈ f(TensorOperations.DefaultAllocator())
     @test allocator.foreign[] == 0
-    return @test isdisjoint(allocator.live, allocator.temps)
+    return @test isempty(allocator.live)
 end
 
 @testset "allocator only frees what it allocated ($(sectortype(a)))" for (a, b, c) in (

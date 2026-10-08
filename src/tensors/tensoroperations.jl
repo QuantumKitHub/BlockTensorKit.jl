@@ -101,13 +101,20 @@ function TO.tensoralloc(
         ::Type{BT}, structure::TensorMapSumSpace, istemp::Val, allocator = TO.DefaultAllocator()
     ) where {BT <: AbstractBlockTensorMap}
     C = BT(undef_blocks, structure)
-    issparse(C) && return C # don't fill up sparse blocks
     blockallocator(V) = TO.tensoralloc(eltype(C), V, istemp, allocator)
     map!(blockallocator, parent(C), eachspace(C))
     return C
 end
 
-# sparse results allocate exactly the blocks that will be written, so `tensorfree!` is consistent
+# sparse tensors start out empty, and only remember whether their blocks are temporaries
+function TO.tensoralloc(
+        ::Type{BT}, structure::TensorMapSumSpace, ::Val{istemp},
+        allocator = TO.DefaultAllocator()
+    ) where {BT <: SparseBlockTensorMap, istemp}
+    return BT(undef_blocks, structure; istemp)
+end
+
+# sparse results allocate the blocks that will be written up front
 const BlockOrAdjoint = Union{AbstractBlockTensorMap, AdjointBlockTensorMap}
 
 _tensoralloc(ttype, structure, keys, istemp::Val, allocator) =
@@ -115,11 +122,8 @@ _tensoralloc(ttype, structure, keys, istemp::Val, allocator) =
 function _tensoralloc(
         ttype::Type{<:SparseBlockTensorMap}, structure, keys, istemp::Val, allocator
     )
-    C = ttype(undef_blocks, structure)
-    Vs = eachspace(C)
-    for I in keys
-        haskey(C, I) || (C[I] = TO.tensoralloc(eltype(C), Vs[I], istemp, allocator))
-    end
+    C = TO.tensoralloc(ttype, structure, istemp, allocator)
+    foreach(I -> haskey(C, I) || allocblock!(C, I, allocator), keys)
     return C
 end
 
@@ -201,7 +205,7 @@ function TO.tensorfree!(t::BlockTensorMap, allocator = TO.DefaultAllocator())
     return nothing
 end
 function TO.tensorfree!(t::SparseBlockTensorMap, allocator = TO.DefaultAllocator())
-    foreach(Base.Fix2(TO.tensorfree!, allocator), nonzero_values(t))
+    t.istemp && foreach(Base.Fix2(TO.tensorfree!, allocator), nonzero_values(t))
     return nothing
 end
 

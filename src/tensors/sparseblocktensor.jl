@@ -2,19 +2,22 @@
     struct SparseBlockTensorMap{TT<:AbstractTensorMap{E,S,N₁,N₂}} <: AbstractBlockTensorMap{E,S,N₁,N₂}
 
 Sparse `SparseBlockTensorMap` type that stores tensors of type `TT` in a sparse dictionary.
+`istemp` marks temporaries of TensorOperations, whose blocks are obtained from and released
+to an allocator.
 """
 struct SparseBlockTensorMap{TT <: AbstractTensorMap, E, S, N₁, N₂, N} <:
     AbstractBlockTensorMap{E, S, N₁, N₂}
     data::Dict{CartesianIndex{N}, TT}
     space::TensorMapSumSpace{S, N₁, N₂}
+    istemp::Bool
 
     # uninitialized constructor
     function SparseBlockTensorMap{TT, E, S, N₁, N₂, N}(
-            ::UndefBlocksInitializer, space::TensorMapSumSpace{S, N₁, N₂}
+            ::UndefBlocksInitializer, space::TensorMapSumSpace{S, N₁, N₂}; istemp::Bool = false
         ) where {E, S, N₁, N₂, N, TT <: AbstractTensorMap{E, S, N₁, N₂}}
         @assert N₁ + N₂ == N "SparseBlockTensorMap: data has wrong number of dimensions"
         data = Dict{CartesianIndex{N}, TT}()
-        return new{TT, E, S, N₁, N₂, N}(data, space)
+        return new{TT, E, S, N₁, N₂, N}(data, space, istemp)
     end
 
     # constructor from data
@@ -22,7 +25,7 @@ struct SparseBlockTensorMap{TT <: AbstractTensorMap, E, S, N₁, N₂, N} <:
             data::Dict{CartesianIndex{N}, TT}, space::TensorMapSumSpace{S, N₁, N₂}
         ) where {E, S, N₁, N₂, N, TT <: AbstractTensorMap{E, S, N₁, N₂}}
         @assert N₁ + N₂ == N "SparseBlockTensorMap: data has wrong number of dimensions"
-        return new{TT, E, S, N₁, N₂, N}(data, space)
+        return new{TT, E, S, N₁, N₂, N}(data, space, false)
     end
 end
 
@@ -34,10 +37,11 @@ end
 
 # uninitialized constructor
 function SparseBlockTensorMap{TT}(
-        ::Union{UndefBlocksInitializer, UndefInitializer}, space::TensorMapSumSpace{S, N₁, N₂}
+        ::Union{UndefBlocksInitializer, UndefInitializer}, space::TensorMapSumSpace{S, N₁, N₂};
+        kwargs...
     ) where {E, S, N₁, N₂, TT <: AbstractTensorMap{E, S, N₁, N₂}}
     N = N₁ + N₂
-    return SparseBlockTensorMap{TT, E, S, N₁, N₂, N}(undef_blocks, space)
+    return SparseBlockTensorMap{TT, E, S, N₁, N₂, N}(undef_blocks, space; kwargs...)
 end
 
 # constructor from data
@@ -194,9 +198,15 @@ end
     t::SparseBlockTensorMap, I::CartesianIndex, ::TO.DefaultAllocator
 ) = getindex!(t, I)
 @propagate_inbounds function getindex!(t::SparseBlockTensorMap, I::CartesianIndex, allocator)
-    haskey(t, I) && return t[I]
-    tI = TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator)
-    return t[I] = zerovector!(tI)
+    return haskey(t, I) ? t[I] : zerovector!(allocblock!(t, I, allocator))
+end
+function allocblock!(t::SparseBlockTensorMap, I::CartesianIndex, allocator)
+    V = eachspace(t)[I]
+    return t[I] = if t.istemp
+        TO.tensoralloc(eltype(t), V, Val(true), allocator)
+    else
+        TO.tensoralloc(eltype(t), V, Val(false), allocator)
+    end
 end
 
 # Show
