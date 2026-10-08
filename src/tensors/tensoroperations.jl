@@ -105,6 +105,79 @@ function TO.tensoralloc(
     return C
 end
 
+# sparse results allocate exactly the blocks that will be written, so `tensorfree!` is consistent
+const BlockOrAdjoint = Union{AbstractBlockTensorMap, AdjointBlockTensorMap}
+
+_tensoralloc(ttype, structure, keys, istemp::Val, allocator) =
+    TO.tensoralloc(ttype, structure, istemp, allocator)
+function _tensoralloc(
+        ttype::Type{<:SparseBlockTensorMap}, structure, keys, istemp::Val, allocator
+    )
+    C = ttype(undef_blocks, structure)
+    Vs = eachspace(C)
+    for I in keys
+        C[I] = TO.tensoralloc(eltype(C), Vs[I], istemp, allocator)
+    end
+    return C
+end
+
+function contract_keys(A, pA::Index2Tuple, B, pB::Index2Tuple, pAB::Index2Tuple)
+    OB = NTuple{length(pB[2]), Int}
+    openB = Dict{NTuple{length(pB[1]), Int}, Vector{OB}}()
+    for IB in nonzero_keys(B)
+        push!(get!(Vector{OB}, openB, TT.getindices(IB.I, pB[1])), TT.getindices(IB.I, pB[2]))
+    end
+    p = TO.linearize(pAB)
+    keys = Set{CartesianIndex{length(p)}}()
+    for IA in nonzero_keys(A)
+        oA = TT.getindices(IA.I, pA[1])
+        for oB in get(openB, TT.getindices(IA.I, pA[2]), ())
+            push!(keys, CartesianIndex(TT.getindices((oA..., oB...), p)))
+        end
+    end
+    return keys
+end
+
+function TO.tensoralloc_add(
+        TC, A::BlockOrAdjoint, pA::Index2Tuple, conjA::Bool,
+        istemp::Val = Val(false), allocator = TO.DefaultAllocator()
+    )
+    ttype = TO.tensoradd_type(TC, A, pA, conjA)
+    structure = TO.tensoradd_structure(A, pA, conjA)
+    p = TO.linearize(pA)
+    keys = (CartesianIndex(TT.getindices(I.I, p)) for I in nonzero_keys(A))
+    return _tensoralloc(ttype, structure, keys, istemp, allocator)
+end
+
+function TO.tensoralloc_contract(
+        TC, A::BlockOrAdjoint, pA::Index2Tuple, conjA::Bool,
+        B::BlockOrAdjoint, pB::Index2Tuple, conjB::Bool,
+        pAB::Index2Tuple, istemp::Val = Val(false), allocator = TO.DefaultAllocator()
+    )
+    ttype = TO.tensorcontract_type(TC, A, pA, conjA, B, pB, conjB, pAB)
+    structure = TO.tensorcontract_structure(A, pA, conjA, B, pB, conjB, pAB)
+    keys = contract_keys(A, pA, B, pB, pAB)
+    return _tensoralloc(ttype, structure, keys, istemp, allocator)
+end
+
+# temporaries derived from `C` must already contain every block the contraction produces
+function TO.tensorcontract!(
+        C::SparseBlockTensorMap,
+        A::BlockOrAdjoint, pA::Index2Tuple, conjA::Bool,
+        B::BlockOrAdjoint, pB::Index2Tuple, conjB::Bool,
+        pAB::Index2Tuple, α::Number, β::Number, backend, allocator
+    )
+    for I in contract_keys(A, pA, B, pB, pAB)
+        getindex!(C, I)
+    end
+    return @invoke TO.tensorcontract!(
+        C::AbstractTensorMap,
+        A::AbstractTensorMap, pA::Index2Tuple, conjA::Bool,
+        B::AbstractTensorMap, pB::Index2Tuple, conjB::Bool,
+        pAB::Index2Tuple, α::Number, β::Number, backend::Any, allocator::Any
+    )
+end
+
 # tensorfree!
 # -----------
 function TO.tensorfree!(t::BlockTensorMap, allocator = TO.DefaultAllocator())

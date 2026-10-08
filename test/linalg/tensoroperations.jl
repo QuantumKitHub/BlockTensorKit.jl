@@ -150,3 +150,55 @@ end
         @test convert(TensorMap, F1) ≈ F2
     end
 end
+
+##
+
+struct TrackingAllocator
+    live::Set{UInt}
+    foreign::Base.RefValue{Int}
+end
+TrackingAllocator() = TrackingAllocator(Set{UInt}(), Ref(0))
+function TensorOperations.tensoralloc(
+        ::Type{A}, structure, ::Val, allocator::TrackingAllocator
+    ) where {A <: AbstractArray}
+    x = fill!(TensorOperations.tensoralloc(A, structure, Val(false)), NaN)
+    push!(allocator.live, objectid(x))
+    return x
+end
+function TensorOperations.tensorfree!(x::AbstractArray, allocator::TrackingAllocator)
+    if objectid(x) in allocator.live
+        delete!(allocator.live, objectid(x))
+    else
+        allocator.foreign[] += 1
+    end
+    return nothing
+end
+
+@testset "allocator only frees what it allocated ($(sectortype(a)))" for (a, b, c) in (
+        (SumSpace(ℂ^2, ℂ^1), SumSpace(ℂ^1, ℂ^2, ℂ^1), SumSpace(ℂ^2, ℂ^3)),
+        (
+            SumSpace(Vect[FermionParity](0 => 1, 1 => 1), Vect[FermionParity](0 => 2)),
+            SumSpace(Vect[FermionParity](1 => 2), Vect[FermionParity](0 => 1, 1 => 1)),
+            SumSpace(Vect[FermionParity](0 => 1), Vect[FermionParity](1 => 1)),
+        ),
+    )
+    A = sprand(Float64, a ⊗ b ← c, 0.4)
+    B = sprand(Float64, c ⊗ b' ← a, 0.4)
+    D = sprand(Float64, a ← b, 0.4)
+
+    allocator = TrackingAllocator()
+    @tensor allocator = allocator E[x; q] := A[x z; w] * B[w z; y] * D[y; q]
+    @tensor Eref[x; q] := A[x z; w] * B[w z; y] * D[y; q]
+    @test E ≈ Eref
+    @test allocator.foreign[] == 0
+
+    @tensor C[x y; p q] := A[x q; w] * B[w p; y]
+    C = spzeros(Float64, space(C))
+    C[1, 1, 1, 1] = randn(Float64, space(C[1, 1, 1, 1]))
+    Cref = copy(C)
+    allocator = TrackingAllocator()
+    @tensor allocator = allocator C[x y; p q] += A[x q; w] * B[w p; y]
+    @tensor Cref[x y; p q] += A[x q; w] * B[w p; y]
+    @test C ≈ Cref
+    @test allocator.foreign[] == 0
+end
