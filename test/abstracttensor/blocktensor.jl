@@ -99,6 +99,21 @@ end
     @test t1 ≈ t1″
 end
 
+@testset "TensorMap conversion: sectors and empty blocks" begin
+    Vs = (
+        Vect[U1Irrep](0 => 2, 1 => 1) ⊞ Vect[U1Irrep](-1 => 1, 2 => 1) ⊞ Vect[U1Irrep](1 => 2),
+        Vect[SU2Irrep](0 => 1, 1 // 2 => 2) ⊞ Vect[SU2Irrep](1 => 1) ⊞ Vect[SU2Irrep](1 // 2 => 1, 3 // 2 => 1),
+        ℂ^0 ⊞ ℂ^2 ⊞ ℂ^3,
+    )
+    for V in Vs, W in (V ⊗ V' ← V ⊗ V, V ⊗ V ⊗ V' ← one(V)), T in scalartypes
+        t = randn(T, W)
+        t′ = @constinferred TensorMap(t)
+        @test norm(t) ≈ norm(t′)
+        @test BlockTensorMap(t′, W) ≈ t
+        @test SparseBlockTensorMap(t′, W) ≈ t
+    end
+end
+
 @testset "Adapt" begin
     W = V1 ⊗ V2 ⊗ V3 ← V4 ⊗ V5
     t1 = rand(Float32, W)
