@@ -67,7 +67,7 @@ function _block(t::AbstractBlockTensorMap, entries, c::Sector)
             _cachedblock(entries[I], c)
         else
             i, j = Tuple(CartesianIndices(allblocks)[k])
-            _zeroblock(eltype(t), rowdims[i], coldims[j], () -> eachspace(t)[I], c)
+            _zeroblock(t, I, rowdims[i], coldims[j], c)
         end
     end
     return mortar(allblocks, rowdims, coldims)
@@ -86,9 +86,9 @@ _blockcache(x::AbstractTensorMap) = (b = TK.blocks(x); b isa TK.BlockIterator ? 
 _cachedblock(x, c::Sector) = block(x, c)
 _cachedblock(b::TK.BlockIterator, c::Sector) = b[c]
 
-function _zeroblock(::Type{TT}, d₁::Int, d₂::Int, getspace, c::Sector) where {TT <: AbstractTensorMap}
-    TT <: TensorMap || return block(zerovector!(similar(TT, getspace())), c)
-    data = zerovector!(similar(storagetype(TT), d₁ * d₂))
+function _zeroblock(t::AbstractBlockTensorMap, I, d₁::Int, d₂::Int, c::Sector)
+    eltype(t) <: TensorMap || return block(zerovector!(similar(eltype(t), eachspace(t)[I])), c)
+    data = zerovector!(similar(storagetype(t), d₁ * d₂))
     return reshape(view(data, 1:(d₁ * d₂)), (d₁, d₂))
 end
 

@@ -51,7 +51,6 @@ end
 _newblock(t::AbstractBlockTensorMap, I, allocator = TO.DefaultAllocator()) =
     TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator)
 
-# `t[I] = f(t[I], β)`, where missing entries are allocated uninitialized and passed `Zero()`
 @propagate_inbounds function _addblock!(
         f, t::AbstractBlockTensorMap, I::CartesianIndex, β::Number = One(), allocator = TO.DefaultAllocator()
     )
@@ -62,7 +61,6 @@ end
 _prescale!(t::AbstractBlockTensorMap, β::Number) =
     isone(β) ? t : iszero(β) ? zerovector!(t) : scale!(t, β)
 
-# scale the entries of `t` that no entry of `tsrc` is mapped onto by `Imap`
 function _scale_untouched!(t::AbstractBlockTensorMap, tsrc::AbstractTensorMap, β::Number, Imap = identity)
     (issparse(tsrc) && !isone(β)) || return t
     touched = Set(Imap(I) for I in nonzero_keys(tsrc))
