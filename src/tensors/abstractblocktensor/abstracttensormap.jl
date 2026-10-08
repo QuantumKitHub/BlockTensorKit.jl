@@ -125,12 +125,6 @@ end
 Base.getindex(iter::TK.BlockIterator{<:AbstractBlockTensorMap}, c::Sector) =
     _block(iter.t, last(iter.structure), c)
 
-function Base.:(==)(t₁::AbstractBlockTensorMap, t₂::AbstractBlockTensorMap)
-    (codomain(t₁) == codomain(t₂) && domain(t₁) == domain(t₂)) || return false
-    b₁, b₂ = TK.blocks(t₁), TK.blocks(t₂)
-    return all(c -> b₁[c] == b₂[c], blocksectors(t₁))
-end
-
 function TensorKit.foreachblock(f, t::AbstractBlockTensorMap; scheduler = nothing)
     foreach(TK.blocks(t)) do (c, b)
         return f(c, (b,))
