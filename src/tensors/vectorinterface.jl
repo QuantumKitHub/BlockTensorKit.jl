@@ -10,15 +10,8 @@ function VI.scale!(t::AbstractBlockTensorMap, α::Number)
     return t
 end
 
-function VI.scale!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number)
-    space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    # entries of ty that are structurally zero in tx have to be zeroed out
-    issparse(tx) && zerovector!(ty)
-    for (I, v) in nonzero_pairs(tx)
-        ty[I] = scale!!(ty[I], v, α)
-    end
-    return ty
-end
+VI.scale!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number) =
+    add!(ty, tx, α, Zero())
 
 # add
 # ---
@@ -31,7 +24,7 @@ function VI.add(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Numb
     # This would give issues for example with DiagonalTensorMap + TensorMap
     T = VectorInterface.promote_add(ty, tx, α, β)
     tdst = if typeof(ty) === typeof(tx)
-        zerovector(ty, T)
+        similar(ty, T)
     else
         M = TK.promote_storagetype(TK.similarstoragetype(ty, T), TK.similarstoragetype(tx, T))
         if issparse(ty) && issparse(tx)
@@ -46,11 +39,41 @@ end
 
 function VI.add!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number, β::Number)
     space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    isone(β) || scale!(ty, β)
+    _scale_untouched!(ty, tx, β)
     for (I, v) in nonzero_pairs(tx)
-        ty[I] = add!!(ty[I], v, α, One())
+        _addblock!((y, γ) -> add!!(y, v, α, γ), ty, I, β)
     end
     return ty
+end
+
+# blockwise updates
+# -----------------
+_newblock(t::AbstractBlockTensorMap, I, allocator = TO.DefaultAllocator()) =
+    TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator)
+
+# `t[I] = f(t[I], β)`, where missing entries are allocated uninitialized and passed `Zero()`
+@propagate_inbounds function _addblock!(
+        f, t::AbstractBlockTensorMap, I::CartesianIndex, β::Number = One(), allocator = TO.DefaultAllocator()
+    )
+    t[I] = haskey(t, I) ? f(t[I], β) : f(_newblock(t, I, allocator), Zero())
+    return t
+end
+
+_prescale!(t::AbstractBlockTensorMap, β::Number) =
+    isone(β) ? t : iszero(β) ? zerovector!(t) : scale!(t, β)
+
+# scale the entries of `t` that no entry of `tsrc` is mapped onto by `Imap`
+function _scale_untouched!(t::AbstractBlockTensorMap, tsrc::AbstractTensorMap, β::Number, Imap = identity)
+    (issparse(tsrc) && !isone(β)) || return t
+    touched = Set(Imap(I) for I in nonzero_keys(tsrc))
+    if issparse(t) && iszero(β)
+        filter!(∈(touched) ∘ first, parent(t))
+    else
+        for (I, v) in nonzero_pairs(t)
+            I ∈ touched || scale!(v, β)
+        end
+    end
+    return t
 end
 
 # inner

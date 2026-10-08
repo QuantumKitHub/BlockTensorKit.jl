@@ -44,9 +44,9 @@ TensorKit.codomain(A::SparseTensorArray) = codomain(space(A))
 TensorKit.domain(A::SparseTensorArray) = domain(space(A))
 
 TensorKit.numout(A::SparseTensorArray) = numout(eltype(A))
-TensorKit.numout(::Type{T}) where {T <: SparseTensorArray} = numout(eltype(A))
+TensorKit.numout(::Type{T}) where {T <: SparseTensorArray} = numout(eltype(T))
 TensorKit.numin(A::SparseTensorArray) = numin(eltype(A))
-TensorKit.numin(::Type{T}) where {T <: SparseTensorArray} = numin(eltype(A))
+TensorKit.numin(::Type{T}) where {T <: SparseTensorArray} = numin(eltype(T))
 
 # AbstractArray interface
 # -----------------------
@@ -93,6 +93,7 @@ function Base.delete!(A::SparseTensorArray, I::Vararg{Int, N}) where {N}
 end
 Base.delete!(A::SparseTensorArray, I::CartesianIndex) = delete!(A.data, I)
 Base.empty!(A::SparseTensorArray) = empty!(A.data)
+Base.filter!(f, A::SparseTensorArray) = (filter!(f, A.data); A)
 function Base.haskey(A::SparseTensorArray, I::Vararg{Int, N}) where {N}
     return haskey(A.data, CartesianIndex(I))
 end

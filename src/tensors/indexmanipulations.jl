@@ -1,65 +1,4 @@
-@propagate_inbounds function TK.add_transform!(
-        tdst::BlockTensorMap, tsrc::BlockTensorMap, p::Index2Tuple, transformer,
-        α::Number, β::Number, backend, allocator
-    )
-    @boundscheck TK.spacecheck_transform(permute, tdst, tsrc, p)
-
-    dstdata = parent(tdst)
-    srcdata = permutedims(StridedView(parent(tsrc)), (p[1]..., p[2]...))
-
-    @inbounds for I in eachindex(dstdata, srcdata)
-        dstdata[I] = TK.add_transform!(
-            dstdata[I], srcdata[I], p, transformer, α, β, backend, allocator
-        )
-    end
-    return tdst
-end
-@propagate_inbounds function TK.add_transform!(
-        tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap,
-        p::Index2Tuple, transformer, α::Number, β::Number, backend, allocator
-    )
-    @boundscheck TK.spacecheck_transform(permute, tdst, tsrc, p)
-    scale!(tdst, β)
-    p_lin = (p[1]..., p[2]...)
-    @inbounds for (I, v) in nonzero_pairs(tsrc)
-        I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        tdst[I′] = TK.add_transform!(
-            tdst[I′], v, p_lin, transformer, α, One(), backend, allocator
-        )
-    end
-    return tdst
-end
-function TK.add_transform!(
-        tdst::AbstractBlockTensorMap, tsrc::AdjointTensorMap{T, S, N₁, N₂, TT},
-        p::Index2Tuple, transformer, α::Number, β::Number, backend, allocator
-    ) where {T, S, N₁, N₂, TT <: AbstractBlockTensorMap}
-    @boundscheck TK.spacecheck_transform(permute, tdst, tsrc, p)
-    scale!(tdst, β)
-    p_lin = (p[1]..., p[2]...)
-    @inbounds for (I, v) in nonzero_pairs(tsrc)
-        I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        tdst[I′] = TK.add_transform!(
-            tdst[I′], v, p, transformer, α, One(), backend, allocator
-        )
-    end
-    return tdst
-end
-function TK.add_transform!(
-        tdst::TensorMap, tsrc::BlockTensorMap, p::Index2Tuple, transformer,
-        α::Number, β::Number, backend, allocator
-    )
-    return TK.add_transform!(
-        tdst, only(tsrc), p, transformer, α, β, backend, allocator
-    )
-end
-function TK.add_transform!(
-        tdst::BlockTensorMap, tsrc::TensorMap, p::Index2Tuple, transformer,
-        α::Number, β::Number, backend, allocator
-    )
-    return TK.add_transform!(
-        only(tdst), tsrc, p, transformer, α, β, backend, allocator
-    )
-end
+const BlockTensorOrAdjoint = Union{AbstractBlockTensorMap, AdjointBlockTensorMap}
 
 # we need to capture the other functions earlier to enjoy the fast transformers...
 for f in (:permute, :transpose)
@@ -80,28 +19,17 @@ for f in (:permute, :transpose)
             return tdst
         end
         function TK.$f!(
-                tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap,
+                tdst::AbstractBlockTensorMap, tsrc::BlockTensorOrAdjoint,
                 p::Index2Tuple, α::Number, β::Number, backend::AbstractBackend, allocator
             )
             @boundscheck TK.spacecheck_transform(TK.$f, tdst, tsrc, p)
-            scale!(tdst, β)
             p_lin = (p[1]..., p[2]...)
+            _scale_untouched!(tdst, tsrc, β, I -> CartesianIndex(TT.getindices(I.I, p_lin)))
             @inbounds for (I, v) in nonzero_pairs(tsrc)
                 I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-                tdst[I′] = TK.$f!(tdst[I′], v, p, α, One(), backend, allocator)
-            end
-            return tdst
-        end
-        function TK.$f!(
-                tdst::AbstractBlockTensorMap, tsrc::AdjointTensorMap{T, S, N₁, N₂, TT},
-                p::Index2Tuple, α::Number, β::Number, backend::AbstractBackend, allocator
-            ) where {T, S, N₁, N₂, TT <: AbstractBlockTensorMap}
-            @boundscheck TK.spacecheck_transform(TK.$f, tdst, tsrc, p)
-            scale!(tdst, β)
-            p_lin = (p[1]..., p[2]...)
-            @inbounds for (I, v) in nonzero_pairs(tsrc)
-                I′ = CartesianIndex(TT.getindices(I.I, p))
-                tdst[I′] = TK.$f!(tdst[I′], v, (p₁, p₂), α, One(), backend, allocator)
+                _addblock!(tdst, I′, β, allocator) do c, γ
+                    TK.$f!(c, v, p, α, γ, backend, allocator)
+                end
             end
             return tdst
         end
@@ -138,29 +66,18 @@ end
     return tdst
 end
 @propagate_inbounds function TK.braid!(
-        tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap,
+        tdst::AbstractBlockTensorMap, tsrc::BlockTensorOrAdjoint,
         p::Index2Tuple, levels::IndexTuple,
         α::Number, β::Number, backend::AbstractBackend, allocator
     )
     @boundscheck TK.spacecheck_transform(braid, tdst, tsrc, p, levels)
-    scale!(tdst, β)
     p_lin = (p[1]..., p[2]...)
+    _scale_untouched!(tdst, tsrc, β, I -> CartesianIndex(TT.getindices(I.I, p_lin)))
     @inbounds for (I, v) in nonzero_pairs(tsrc)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        tdst[I′] = TK.braid!(tdst[I′], v, p, levels, α, One(), backend, allocator)
-    end
-    return tdst
-end
-function TK.braid!(
-        tdst::AbstractBlockTensorMap, tsrc::AdjointTensorMap{T, S, N₁, N₂, TT},
-        p::Index2Tuple, levels::IndexTuple, α::Number, β::Number, backend::AbstractBackend, allocator
-    ) where {T, S, N₁, N₂, TT <: AbstractBlockTensorMap}
-    @boundscheck TK.spacecheck_transform(braid, tdst, tsrc, p, levels)
-    scale!(tdst, β)
-    p_lin = (p[1]..., p[2]...)
-    @inbounds for (I, v) in nonzero_pairs(tsrc)
-        I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        tdst[I′] = TK.braid!(tdst[I′], v, p, levels, α, One(), backend, allocator)
+        _addblock!(tdst, I′, β, allocator) do c, γ
+            TK.braid!(c, v, p, levels, α, γ, backend, allocator)
+        end
     end
     return tdst
 end
@@ -169,7 +86,7 @@ function TK.braid!(
         p::Index2Tuple, levels::IndexTuple,
         α::Number, β::Number, backend::AbstractBackend, allocator
     )
-    return TK.add_braid!(tdst, only(tsrc), p, levels, α, β, backend, allocator)
+    return TK.braid!(tdst, only(tsrc), p, levels, α, β, backend, allocator)
 end
 function TK.braid!(
         tdst::BlockTensorMap, tsrc::TensorMap,
