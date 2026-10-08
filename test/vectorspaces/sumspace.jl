@@ -266,3 +266,17 @@ end
         @test issetequal(@constinferred(blocksectors(v ← v)), blocksectors(v))
     end
 end
+
+@testset "sectorhash and sectorequal" begin
+    V = Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2) ⊞ Vect[U1Irrep](0 => 3, 1 => 1) ⊞ Vect[U1Irrep](2 => 1)
+    V′ = Vect[U1Irrep](0 => 1, 1 => 1, -1 => 3) ⊞ Vect[U1Irrep](0 => 1, 1 => 2) ⊞ Vect[U1Irrep](2 => 4)
+    @test TensorKit.sectorequal(V, V′)
+    @test TensorKit.sectorhash(V, UInt(1)) == TensorKit.sectorhash(V′, UInt(1))
+    @test !TensorKit.sectorequal(V, V')
+    @test !TensorKit.sectorequal(V, V ⊞ V)
+    @test axes(V, U1Irrep(1)) == [3, 4, 10]
+    for W in (V ⊗ V ← V, V ⊗ V' ← V ⊗ V, (V ⊞ V) ⊗ V' ← V)
+        @test blocksectors(W) == blocksectors(convert(TensorMapSpace, W))
+    end
+    @test blocksectors(V′ ⊗ V′' ← V′) == blocksectors(V ⊗ V' ← V)
+end

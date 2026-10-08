@@ -75,12 +75,12 @@ Base.axes(S::SumSpace) = Base.OneTo(dim(S))
 Base.axes(S::SumSpace, n::Int) = axes(S.spaces, n)
 function Base.axes(S::SumSpace, c::Sector)
     offset = 0
-    a = []
+    a = Int[]
     for s in S.spaces
-        a = push!(a, axes(s, c) .+ offset)
+        append!(a, axes(s, c) .+ offset)
         offset += dim(s)
     end
-    return collect(flatten(a))
+    return a
 end
 
 Base.hash(S::SumSpace, h::UInt) = hash(S.spaces, h)
@@ -132,6 +132,21 @@ function TensorKit._sectors(S::SumSpace, ::Type{I}) where {I}
     end
     # sorted for a canonical order, consistent with `GradedSpace` and `blocksectors`
     return sort!(collect(s))
+end
+
+function TensorKit.sectorequal(S₁::SumSpace, S₂::SumSpace)
+    isdual(S₁) == isdual(S₂) && length(S₁) == length(S₂) || return false
+    for (V₁, V₂) in zip(S₁.spaces, S₂.spaces)
+        TK.sectorequal(V₁, V₂) || return false
+    end
+    return true
+end
+function TensorKit.sectorhash(S::SumSpace, h::UInt)
+    h = hash(isdual(S), h)
+    for V in S.spaces
+        h = TK.sectorhash(V, h)
+    end
+    return h
 end
 
 TensorKit.dim(S::SumSpace, sector::Sector) = sum(v -> dim(v, sector), S.spaces; init = 0)
