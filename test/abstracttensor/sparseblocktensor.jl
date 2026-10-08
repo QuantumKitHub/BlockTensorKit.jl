@@ -247,3 +247,25 @@ end
 
     @test HrA12array ≈ convert(TensorMap, HrA12)
 end
+
+@testset "sparse block access" begin
+    Vu = Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2) ⊞ Vect[U1Irrep](0 => 3, 1 => 1) ⊞ Vect[U1Irrep](0 => 1, 2 => 1)
+    for W in (Vu ⊗ Vu ← Vu, Vu ⊗ Vu' ← Vu ⊗ Vu)
+        for t in (sprand(W, 0.3), spzeros(W))
+            td = BlockTensorMap(t)
+            @test length(TensorKit.blocks(t)) == length(blocksectors(t))
+            for (c, b) in TensorKit.blocks(t)
+                @test b isa TensorKit.blocktype(t)
+                @test @constinferred(block(t, c)) == b == block(td, c)
+                @test size.(b.blocks) == size.(block(td, c).blocks)
+            end
+            TensorKit.foreachblock(t, td) do c, (b, bd)
+                @test b == bd
+            end
+            for (f₁, f₂) in fusiontrees(t)
+                @test t[f₁, f₂] == td[f₁, f₂]
+            end
+            @test t == td
+        end
+    end
+end
