@@ -5,6 +5,8 @@ using BlockTensorKit
 using Random
 using Combinatorics
 using LinearAlgebra
+using Adapt
+using JLArrays
 
 Vtr = (
     SumSpace(ℂ^3),
@@ -544,4 +546,10 @@ end
     d = BlockTensorKit.copy_dense!(BlockTensorKit.similar_dense(b), b) .* 2
     BlockTensorKit.copy_blocks!(b, d)
     @test BlockTensorKit.copy_dense!(BlockTensorKit.similar_dense(b), b) == d
+
+    tg = adapt(JLVector{Float64}, t)
+    c = first(blocksectors(t))
+    BlockTensorKit.copy_blocks!(block(t, c), d .* 3)
+    BlockTensorKit.copy_blocks!(block(tg, c), JLArray(d .* 3))
+    @test adapt(Vector{Float64}, tg) ≈ t
 end
