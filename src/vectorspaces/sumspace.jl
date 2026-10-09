@@ -134,19 +134,17 @@ function TensorKit._sectors(S::SumSpace, ::Type{I}) where {I}
     return sort!(collect(s))
 end
 
+_sectorsubset(S₁::SumSpace, S₂::SumSpace) = all(V -> all(s -> hassector(S₂, s), sectors(V)), S₁.spaces)
 function TensorKit.sectorequal(S₁::SumSpace, S₂::SumSpace)
-    isdual(S₁) == isdual(S₂) && length(S₁) == length(S₂) || return false
-    for (V₁, V₂) in zip(S₁.spaces, S₂.spaces)
-        TK.sectorequal(V₁, V₂) || return false
-    end
-    return true
+    return isdual(S₁) == isdual(S₂) && _sectorsubset(S₁, S₂) && _sectorsubset(S₂, S₁)
 end
 function TensorKit.sectorhash(S::SumSpace, h::UInt)
-    h = hash(isdual(S), h)
-    for V in S.spaces
-        h = TK.sectorhash(V, h)
+    lo, hi = typemax(UInt), typemin(UInt)
+    for V in S.spaces, s in sectors(V)
+        x = hash(s)
+        lo, hi = min(lo, x), max(hi, x)
     end
-    return h
+    return hash(lo, hash(hi, hash(isdual(S), h)))
 end
 
 TensorKit.dim(S::SumSpace, sector::Sector) = sum(v -> dim(v, sector), S.spaces; init = 0)
