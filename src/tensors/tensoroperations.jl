@@ -97,21 +97,31 @@ function similarblocktype(::Type{A}, ::Type{TT}) where {A, TT}
     return Core.Compiler.return_type(similar, Tuple{A, Type{TT}, NTuple{numind(TT), Int}})
 end
 
+# blocks are stored as the type the allocator hands out, e.g. `PtrArray`-backed temporaries
+function allocated_blocktype(::Type{TT}, structure, istemp::Val, allocator) where {TT}
+    V = eltype(SumSpaceIndices(structure))
+    TT′ = Base.promote_op(TO.tensoralloc, Type{TT}, V, typeof(istemp), typeof(allocator))
+    TA = AbstractTensorMap{scalartype(TT), spacetype(TT), numout(TT), numin(TT)}
+    return typeintersect(TT′, TA)
+end
+
 function TO.tensoralloc(
         ::Type{BT}, structure::TensorMapSumSpace, istemp::Val, allocator = TO.DefaultAllocator()
     ) where {BT <: AbstractBlockTensorMap}
-    C = BT(undef_blocks, structure)
-    blockallocator(V) = TO.tensoralloc(eltype(C), V, istemp, allocator)
-    map!(blockallocator, parent(C), eachspace(C))
+    TT = eltype(BT)
+    C = BlockTensorMap{allocated_blocktype(TT, structure, istemp, allocator)}(
+        undef_blocks, structure
+    )
+    map!(V -> TO.tensoralloc(TT, V, istemp, allocator), parent(C), eachspace(C))
     return C
 end
 
 # sparse tensors start out empty, and only remember whether their blocks are temporaries
 function TO.tensoralloc(
-        ::Type{BT}, structure::TensorMapSumSpace, ::Val{istemp},
-        allocator = TO.DefaultAllocator()
-    ) where {BT <: SparseBlockTensorMap, istemp}
-    return BT(undef_blocks, structure; istemp)
+        ::Type{BT}, structure::TensorMapSumSpace, istemp::Val, allocator = TO.DefaultAllocator()
+    ) where {BT <: SparseBlockTensorMap}
+    TT = allocated_blocktype(eltype(BT), structure, istemp, allocator)
+    return SparseBlockTensorMap{TT}(undef_blocks, structure; istemp = istemp === Val(true))
 end
 
 # sparse results allocate the blocks that will be written up front

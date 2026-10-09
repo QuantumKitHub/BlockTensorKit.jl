@@ -153,6 +153,7 @@ end
 
 ##
 
+# temporaries are `PtrArray`s, such that converting them into other storage is detected
 struct TrackingAllocator
     live::Set{UInt} # temporaries that were handed out and not freed yet
     foreign::Base.RefValue{Int} # freed arrays that were not handed out as temporaries
@@ -161,13 +162,18 @@ TrackingAllocator() = TrackingAllocator(Set{UInt}(), Ref(0))
 function TensorOperations.tensoralloc(
         ::Type{A}, structure, ::Val{istemp}, allocator::TrackingAllocator
     ) where {A <: AbstractArray, istemp}
-    x = fill!(TensorOperations.tensoralloc(A, structure, Val(false)), NaN)
-    istemp && push!(allocator.live, objectid(x))
+    istemp || return TensorOperations.tensoralloc(A, structure, Val(false))
+    x = fill!(
+        TensorOperations.tensoralloc(A, structure, Val(true), TensorOperations.ManualAllocator()),
+        NaN
+    )
+    push!(allocator.live, objectid(x))
     return x
 end
 function TensorOperations.tensorfree!(x::AbstractArray, allocator::TrackingAllocator)
     if objectid(x) in allocator.live
         delete!(allocator.live, objectid(x))
+        TensorOperations.tensorfree!(x, TensorOperations.ManualAllocator())
     else
         allocator.foreign[] += 1
     end
