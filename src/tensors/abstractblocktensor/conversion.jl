@@ -12,13 +12,10 @@ function _subblock_pairs(t::AbstractTensorMap)
     f = TK.trivial_fusiontree(t)
     return (f => subblock(t, f),)
 end
-function _subblock_getter(t::AbstractTensorMap)
-    return sectortype(t) === Trivial ? Base.Fix1(subblock, t) : Base.Fix1(getindex, subblocks(t))
-end
 
 function _copy_subblocks!(tdst::TensorMap, tsrc::AbstractBlockTensorMap)
     offsets = map(_sumspace_offsets, eachspace(tsrc).sumspaces)
-    dst = _subblock_getter(tdst)
+    dst = Base.Fix1(_cachedsubblock, _subblockcache(tdst))
     for (I, v) in nonzero_pairs(tsrc), (f, src) in _subblock_pairs(v)
         copy!(view(dst(f), _subblock_ranges(offsets, f, I)...), src)
     end
@@ -27,7 +24,7 @@ end
 
 function _copy_subblocks!(tdst::AbstractBlockTensorMap, tsrc::AbstractTensorMap)
     offsets = map(_sumspace_offsets, eachspace(tdst).sumspaces)
-    src = _subblock_getter(tsrc)
+    src = Base.Fix1(_cachedsubblock, _subblockcache(tsrc))
     for (I, V) in pairs(eachspace(tdst))
         v = similar(eltype(tdst), V)
         vblocks = _subblock_pairs(v)

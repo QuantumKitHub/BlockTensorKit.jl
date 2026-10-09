@@ -310,6 +310,11 @@ end
             for (f₁, f₂) in fusiontrees(t)
                 @test t[f₁, f₂] == td[f₁, f₂]
             end
+            sbs = TensorKit.subblocks(t)
+            @test length(sbs) == length(fusiontrees(t))
+            for (i, (f, b)) in enumerate(sbs)
+                @test b == sbs[i] == TensorKit.subblock(td, f)
+            end
             @test t == td
         end
     end
