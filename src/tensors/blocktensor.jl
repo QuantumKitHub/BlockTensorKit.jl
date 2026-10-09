@@ -219,3 +219,4 @@ end
 # -------
 Base.haskey(t::BlockTensorMap, I::CartesianIndex) = checkbounds(Bool, t.data, I)
 Base.haskey(t::BlockTensorMap, i::Int) = checkbounds(Bool, t.data, i)
+@propagate_inbounds getindex!(t::BlockTensorMap, I::CartesianIndex{N}) where {N} = t[I]

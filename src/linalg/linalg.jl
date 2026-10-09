@@ -118,6 +118,8 @@ end
     )
     return if haskey(C, I)
         C[I] = _mul!!(C[I], A, B, α, β)
+    elseif istemp(C)
+        C[I] = _mul!!(getindex!(C, I), A, B, α, β)
     else
         C[I] = _mul!!(nothing, A, B, α, β)
     end

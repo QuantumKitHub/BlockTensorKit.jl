@@ -116,12 +116,14 @@ function TO.tensoralloc(
     return C
 end
 
-# sparse tensors start out empty, and only remember whether their blocks are temporaries
+# sparse tensors start out empty, and temporaries remember their allocator
 function TO.tensoralloc(
         ::Type{BT}, structure::TensorMapSumSpace, istemp::Val, allocator = TO.DefaultAllocator()
     ) where {BT <: SparseBlockTensorMap}
     TT = allocated_blocktype(eltype(BT), structure, istemp, allocator)
-    return SparseBlockTensorMap{TT}(undef_blocks, structure; istemp = istemp === Val(true))
+    return SparseBlockTensorMap{TT}(
+        undef_blocks, structure; allocator = istemp === Val(true) ? allocator : nothing
+    )
 end
 
 # sparse results allocate the blocks that will be written up front
@@ -215,7 +217,7 @@ function TO.tensorfree!(t::BlockTensorMap, allocator = TO.DefaultAllocator())
     return nothing
 end
 function TO.tensorfree!(t::SparseBlockTensorMap, allocator = TO.DefaultAllocator())
-    t.istemp && foreach(Base.Fix2(TO.tensorfree!, allocator), nonzero_values(t))
+    istemp(t) && foreach(Base.Fix2(TO.tensorfree!, allocator), nonzero_values(t))
     return nothing
 end
 
@@ -253,7 +255,7 @@ function TK.trace_permute!(
         TT.getindices(Isrc.I, q₁) == TT.getindices(Isrc.I, q₂) || continue
         Idst = CartesianIndex(TT.getindices(Isrc.I, (p₁..., p₂...)))
         tdst[Idst] = TensorKit.trace_permute!(
-            tdst[Idst], vsrc, (p₁, p₂), (q₁, q₂), α, One(), backend
+            getindex!(tdst, Idst), vsrc, (p₁, p₂), (q₁, q₂), α, One(), backend
         )
     end
     return tdst

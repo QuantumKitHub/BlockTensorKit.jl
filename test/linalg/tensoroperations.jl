@@ -3,7 +3,7 @@ using BlockTensorKit
 using TensorKit
 using TensorOperations
 using Random
-using LinearAlgebra: norm
+using LinearAlgebra: norm, mul!
 
 ##
 Vtr = (
@@ -211,6 +211,16 @@ end
     end
     check_allocator() do al
         return @planar allocator = al R[x; q] := A[x z; w] * B[w z; y] * D[y; q]
+    end
+    check_allocator() do al # kernels without allocator argument fill an empty temporary
+        T = TensorOperations.tensoralloc(typeof(D), a ← a, Val(true), al)
+        mul!(T, D, D')
+        TensorOperations.tensortrace!(
+            T, X, ((1,), (3,)), ((2,), (4,)), false, 1, 1, TensorOperations.DefaultBackend(), al
+        )
+        n = norm(T)
+        TensorOperations.tensorfree!(T, al)
+        return n
     end
 
     # permuted and BLAS-compatible destinations, without and with blocks outside of the product

@@ -2,22 +2,22 @@
     struct SparseBlockTensorMap{TT<:AbstractTensorMap{E,S,N₁,N₂}} <: AbstractBlockTensorMap{E,S,N₁,N₂}
 
 Sparse `SparseBlockTensorMap` type that stores tensors of type `TT` in a sparse dictionary.
-`istemp` marks temporaries of TensorOperations, whose blocks are obtained from and released
-to an allocator.
+Temporaries of TensorOperations keep their `allocator` (otherwise `nothing`), from which their
+blocks are obtained and to which they are released.
 """
 struct SparseBlockTensorMap{TT <: AbstractTensorMap, E, S, N₁, N₂, N} <:
     AbstractBlockTensorMap{E, S, N₁, N₂}
     data::Dict{CartesianIndex{N}, TT}
     space::TensorMapSumSpace{S, N₁, N₂}
-    istemp::Bool
+    allocator::Any
 
     # uninitialized constructor
     function SparseBlockTensorMap{TT, E, S, N₁, N₂, N}(
-            ::UndefBlocksInitializer, space::TensorMapSumSpace{S, N₁, N₂}; istemp::Bool = false
+            ::UndefBlocksInitializer, space::TensorMapSumSpace{S, N₁, N₂}; allocator = nothing
         ) where {E, S, N₁, N₂, N, TT <: AbstractTensorMap{E, S, N₁, N₂}}
         @assert N₁ + N₂ == N "SparseBlockTensorMap: data has wrong number of dimensions"
         data = Dict{CartesianIndex{N}, TT}()
-        return new{TT, E, S, N₁, N₂, N}(data, space, istemp)
+        return new{TT, E, S, N₁, N₂, N}(data, space, allocator)
     end
 
     # constructor from data
@@ -25,7 +25,7 @@ struct SparseBlockTensorMap{TT <: AbstractTensorMap, E, S, N₁, N₂, N} <:
             data::Dict{CartesianIndex{N}, TT}, space::TensorMapSumSpace{S, N₁, N₂}
         ) where {E, S, N₁, N₂, N, TT <: AbstractTensorMap{E, S, N₁, N₂}}
         @assert N₁ + N₂ == N "SparseBlockTensorMap: data has wrong number of dimensions"
-        return new{TT, E, S, N₁, N₂, N}(data, space, false)
+        return new{TT, E, S, N₁, N₂, N}(data, space, nothing)
     end
 end
 
@@ -193,7 +193,15 @@ function Base.delete!(t::SparseBlockTensorMap{TT}, I::Vararg{Int, N}) where {TT,
     return delete!(t, CartesianIndex(I...))
 end
 
-# missing blocks of a destination are obtained from the allocator of the operation
+# missing blocks of temporaries are obtained from their own allocator, those of other
+# destinations from the allocator of the operation, if any
+istemp(t::AbstractBlockTensorMap) = false
+istemp(t::SparseBlockTensorMap) = !isnothing(t.allocator)
+
+@propagate_inbounds function getindex!(t::SparseBlockTensorMap, I::CartesianIndex{N}) where {N}
+    istemp(t) || return getindex!(parent(t), I)
+    return haskey(t, I) ? t[I] : zerovector!(allocblock!(t, I, t.allocator))
+end
 @propagate_inbounds getindex!(
     t::SparseBlockTensorMap, I::CartesianIndex, ::TO.DefaultAllocator
 ) = getindex!(t, I)
@@ -202,8 +210,8 @@ end
 end
 function allocblock!(t::SparseBlockTensorMap, I::CartesianIndex, allocator)
     V = eachspace(t)[I]
-    return t[I] = if t.istemp
-        TO.tensoralloc(eltype(t), V, Val(true), allocator)
+    return t[I] = if istemp(t)
+        TO.tensoralloc(eltype(t), V, Val(true), t.allocator)
     else
         TO.tensoralloc(eltype(t), V, Val(false), allocator)
     end

@@ -3,7 +3,7 @@
 VI.zerovector!(t::AbstractBlockTensorMap) = (zerovector!(parent(t)); t)
 # blocks of temporaries belong to an allocator, and are kept until `tensorfree!`
 function VI.zerovector!(t::SparseBlockTensorMap)
-    t.istemp ? foreach(zerovector!, nonzero_values(t)) : empty!(t.data)
+    istemp(t) ? foreach(zerovector!, nonzero_values(t)) : empty!(t.data)
     return t
 end
 
