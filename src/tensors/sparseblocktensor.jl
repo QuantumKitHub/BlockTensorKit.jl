@@ -85,11 +85,7 @@ end
 # AbstractTensorMap -> SparseBlockTensorMap
 function SparseBlockTensorMap(t::AbstractTensorMap, space::TensorMapSumSpace)
     TT = tensormaptype(spacetype(t), numout(t), numin(t), storagetype(t))
-    tdst = SparseBlockTensorMap{TT}(undef, space)
-    for (f₁, f₂) in fusiontrees(tdst)
-        tdst[f₁, f₂] = t[f₁, f₂]
-    end
-    return tdst
+    return _copy_subblocks!(SparseBlockTensorMap{TT}(undef_blocks, space), t)
 end
 
 # Utility constructors

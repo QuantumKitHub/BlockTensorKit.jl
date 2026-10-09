@@ -99,6 +99,21 @@ end
     @test t1 ≈ t1″
 end
 
+@testset "TensorMap conversion: sectors and empty blocks" begin
+    Vs = (
+        Vect[U1Irrep](0 => 2, 1 => 1) ⊞ Vect[U1Irrep](-1 => 1, 2 => 1) ⊞ Vect[U1Irrep](1 => 2),
+        Vect[SU2Irrep](0 => 1, 1 // 2 => 2) ⊞ Vect[SU2Irrep](1 => 1) ⊞ Vect[SU2Irrep](1 // 2 => 1, 3 // 2 => 1),
+        ℂ^0 ⊞ ℂ^2 ⊞ ℂ^3,
+    )
+    for V in Vs, W in (V ⊗ V' ← V ⊗ V, V ⊗ V ⊗ V' ← one(V)), T in scalartypes
+        t = randn(T, W)
+        t′ = @constinferred TensorMap(t)
+        @test norm(t) ≈ norm(t′)
+        @test BlockTensorMap(t′, W) ≈ t
+        @test SparseBlockTensorMap(t′, W) ≈ t
+    end
+end
+
 @testset "Adapt" begin
     W = V1 ⊗ V2 ⊗ V3 ← V4 ⊗ V5
     t1 = rand(Float32, W)
@@ -167,6 +182,34 @@ end
         @test u' * u ≈ id(A, Vsum)
         @test only(u * u') ≈ id(A, Vflat)
         @test isunitary(u)
+    end
+end
+
+@testset "norm, ==, tr: test via conversion" begin
+    W = V1 ⊗ V2 ← V1 ⊗ V2
+    for T in (Float64, ComplexF64)
+        t = rand(T, W)
+        t′ = convert(TensorMap, t)
+        for p in (1, 2, 3, Inf)
+            @test norm(t, p) ≈ norm(t′, p)
+        end
+        @test tr(t) ≈ tr(t′)
+        @test t == copy(t)
+        ts, td = SparseBlockTensorMap(t), BlockTensorMap(t)
+        @test t == ts == td
+        @test td == ts
+        @test td != 2 * ts
+        @test ts != 2 * td
+        @test norm(ts, 1) ≈ norm(td, 1)
+        @test t != 2 * t
+        t2 = copy(t)
+        t2[1] = zero(t2[1]) + t2[1]
+        @test t2 == t
+        @test (t2 + t) != t
+        @test t != rand(T, V1 ⊗ V2 ← V1)
+        @test iszero(norm(spzeros(T, W)))
+        @test spzeros(T, W) == zero(t)
+        @test iszero(tr(spzeros(T, W)))
     end
 end
 

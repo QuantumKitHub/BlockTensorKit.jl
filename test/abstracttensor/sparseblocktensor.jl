@@ -91,6 +91,23 @@ end
     end
 end
 
+@testset "TensorMap conversion: sectors and empty blocks" begin
+    Vs = (
+        Vect[U1Irrep](0 => 2, 1 => 1) ⊞ Vect[U1Irrep](-1 => 1, 2 => 1) ⊞ Vect[U1Irrep](1 => 2),
+        Vect[SU2Irrep](0 => 1, 1 // 2 => 2) ⊞ Vect[SU2Irrep](1 => 1) ⊞ Vect[SU2Irrep](1 // 2 => 1, 3 // 2 => 1),
+        ℂ^0 ⊞ ℂ^2 ⊞ ℂ^3,
+    )
+    for V in Vs, W in (V ⊗ V' ← V ⊗ V, V ⊗ V ⊗ V' ← one(V)), T in scalartypes
+        t = sprand(T, W, 0.5)
+        t′ = @constinferred TensorMap(t)
+        @test norm(t) ≈ norm(t′)
+        t″ = SparseBlockTensorMap(t′, W)
+        @test t″ ≈ t
+        @test all(I -> dim(eachspace(t)[I]) > 0, nonzero_keys(t″))
+        @test TensorMap(BlockTensorMap(t)) ≈ t′
+    end
+end
+
 @testset "Adapt" begin
     W = V1 ⊗ V2 ⊗ V3 ← V4 ⊗ V5
     t1 = sprand(Float32, W, 0.5)
@@ -142,6 +159,35 @@ end
         @test dim(w) == 2 * dim(V1 ← V1)
         @test w' * w == id(storagetype(t), V1)
         @test w * w' == (w * w')^2
+    end
+end
+
+@testset "norm, ==, tr: test via conversion" begin
+    W = V1 ⊗ V2 ← V1 ⊗ V2
+    for T in (Float64, ComplexF64)
+        t = sprand(T, W, 0.5)
+        t[1] = randn(T, space(t[1]))
+        t′ = convert(TensorMap, t)
+        for p in (1, 2, 3, Inf)
+            @test norm(t, p) ≈ norm(t′, p)
+        end
+        @test tr(t) ≈ tr(t′)
+        @test t == copy(t)
+        ts, td = SparseBlockTensorMap(t), BlockTensorMap(t)
+        @test t == ts == td
+        @test td == ts
+        @test td != 2 * ts
+        @test ts != 2 * td
+        @test norm(ts, 1) ≈ norm(td, 1)
+        @test t != 2 * t
+        t2 = copy(t)
+        t2[1] = zero(t2[1]) + t2[1]
+        @test t2 == t
+        @test (t2 + t) != t
+        @test t != rand(T, V1 ⊗ V2 ← V1)
+        @test iszero(norm(spzeros(T, W)))
+        @test spzeros(T, W) == zero(t)
+        @test iszero(tr(spzeros(T, W)))
     end
 end
 
@@ -246,4 +292,31 @@ end
         convert(TensorMap, H)[s1, s2, t1, t2]
 
     @test HrA12array ≈ convert(TensorMap, HrA12)
+end
+
+@testset "sparse block access" begin
+    Vu = Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2) ⊞ Vect[U1Irrep](0 => 3, 1 => 1) ⊞ Vect[U1Irrep](0 => 1, 2 => 1)
+    for W in (Vu ⊗ Vu ← Vu, Vu ⊗ Vu' ← Vu ⊗ Vu)
+        for t in (sprand(W, 0.3), spzeros(W))
+            td = BlockTensorMap(t)
+            @test length(TensorKit.blocks(t)) == length(blocksectors(t))
+            for (c, b) in TensorKit.blocks(t)
+                @test b isa TensorKit.blocktype(t)
+                @test @constinferred(block(t, c)) == b == block(td, c)
+                @test size.(b.blocks) == size.(block(td, c).blocks)
+            end
+            TensorKit.foreachblock(t, td) do c, (b, bd)
+                @test b == bd
+            end
+            for (f₁, f₂) in fusiontrees(t)
+                @test t[f₁, f₂] == td[f₁, f₂]
+            end
+            sbs = TensorKit.subblocks(t)
+            @test length(sbs) == length(fusiontrees(t))
+            for (i, (f, b)) in enumerate(sbs)
+                @test b == sbs[i] == TensorKit.subblock(td, f)
+            end
+            @test t == td
+        end
+    end
 end

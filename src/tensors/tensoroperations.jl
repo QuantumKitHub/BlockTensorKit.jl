@@ -21,11 +21,13 @@ function TO.tensoradd!(
         C::AbstractBlockTensorMap, A::AbstractBlockTensorMap, pA::Index2Tuple, conjA::Bool,
         α::Number, β::Number, backend, allocator
     )
-    scale!(C, β)
     p_lin = (pA[1]..., pA[2]...)
+    _scale_untouched!(C, A, β, I -> CartesianIndex(TT.getindices(I.I, p_lin)))
     @inbounds for (I, v) in nonzero_pairs(A)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        C[I′] = TO.tensoradd!(C[I′], v, pA, conjA, α, One(), backend, allocator)
+        _addblock!(C, I′, β, allocator) do c, γ
+            TO.tensoradd!(c, v, pA, conjA, α, γ, backend, allocator)
+        end
     end
     return C
 end
@@ -145,13 +147,13 @@ function TK.trace_permute!(
                     q₁ = $(q₁), q₂ = $(q₂)"))
     end
 
-    scale!(tdst, β)
+    _prescale!(tdst, β)
     @inbounds for (Isrc, vsrc) in nonzero_pairs(tsrc)
         TT.getindices(Isrc.I, q₁) == TT.getindices(Isrc.I, q₂) || continue
         Idst = CartesianIndex(TT.getindices(Isrc.I, (p₁..., p₂...)))
-        tdst[Idst] = TensorKit.trace_permute!(
-            tdst[Idst], vsrc, (p₁, p₂), (q₁, q₂), α, One(), backend
-        )
+        _addblock!(tdst, Idst) do c, γ
+            TensorKit.trace_permute!(c, vsrc, (p₁, p₂), (q₁, q₂), α, γ, backend)
+        end
     end
     return tdst
 end

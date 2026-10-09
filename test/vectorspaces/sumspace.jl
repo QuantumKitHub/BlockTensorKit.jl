@@ -266,3 +266,32 @@ end
         @test issetequal(@constinferred(blocksectors(v ← v)), blocksectors(v))
     end
 end
+
+@testset "sectorhash and sectorequal" begin
+    V = Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2) ⊞ Vect[U1Irrep](0 => 3, 1 => 1) ⊞ Vect[U1Irrep](2 => 1)
+    V′ = Vect[U1Irrep](0 => 1, 1 => 1, -1 => 3) ⊞ Vect[U1Irrep](0 => 1, 1 => 2) ⊞ Vect[U1Irrep](2 => 4)
+    @test TensorKit.sectorequal(V, V′)
+    @test TensorKit.sectorhash(V, UInt(1)) == TensorKit.sectorhash(V′, UInt(1))
+    @test !TensorKit.sectorequal(V, V')
+    for V″ in (V ⊞ V, V[[3, 1, 2]], ⊞(⊕(V)), ⊞(Vect[U1Irrep](0 => 1, 1 => 1, -1 => 1, 2 => 1)))
+        @test TensorKit.sectorequal(V, V″)
+        @test TensorKit.sectorhash(V, UInt(1)) == TensorKit.sectorhash(V″, UInt(1))
+    end
+    @test !TensorKit.sectorequal(V, V[1:2])
+
+    fallback_equal(a, b) = invoke(TensorKit.sectorequal, Tuple{ElementarySpace, ElementarySpace}, a, b)
+    randcomp() = Vect[U1Irrep](c => rand(0:1) for c in -2:2)
+    for _ in 1:500
+        dual = rand(Bool)
+        a, b = (SumSpace([randcomp() for _ in 1:rand(1:4)]) for _ in 1:2)
+        a, b = dual ? (a', b') : (a, b)
+        @test TensorKit.sectorequal(a, b) == fallback_equal(a, b)
+        TensorKit.sectorequal(a, b) &&
+            @test TensorKit.sectorhash(a, UInt(1)) == TensorKit.sectorhash(b, UInt(1))
+    end
+    @test axes(V, U1Irrep(1)) == [3, 4, 10]
+    for W in (V ⊗ V ← V, V ⊗ V' ← V ⊗ V, (V ⊞ V) ⊗ V' ← V)
+        @test blocksectors(W) == blocksectors(convert(TensorMapSpace, W))
+    end
+    @test blocksectors(V′ ⊗ V′' ← V′) == blocksectors(V ⊗ V' ← V)
+end

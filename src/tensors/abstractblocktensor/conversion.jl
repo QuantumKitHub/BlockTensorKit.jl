@@ -1,16 +1,38 @@
 # Conversion
 # ----------
 
-function _copy_subblocks!(tdst, tsrc)
-    N₁, N₂ = numout(tsrc), numin(tsrc)
-    offsets = ntuple(i -> _sumspace_offsets(i <= N₁ ? codomain(tsrc)[i] : domain(tsrc)[i - N₁]), N₁ + N₂)
-    # a single `SubblockIterator` holds the structure: `tdst[f₁, f₂]` would look it up in TensorKit's locked cache every time
-    dstblocks = subblocks(tdst)
-    for (k, v) in nonzero_pairs(tsrc), ((f₁, f₂), src) in subblocks(v)
-        ranges = map(offsets, (f₁.uncoupled..., f₂.uncoupled...), Tuple(k)) do o, c, kᵢ
-            return (o[c][kᵢ] + 1):o[c][kᵢ + 1]
+function _subblock_ranges(offsets, (f₁, f₂), I::CartesianIndex)
+    return map(offsets, (f₁.uncoupled..., f₂.uncoupled...), Tuple(I)) do o, c, kᵢ
+        return (o[c][kᵢ] + 1):o[c][kᵢ + 1]
+    end
+end
+
+function _subblock_pairs(t::AbstractTensorMap)
+    sectortype(t) === Trivial || return subblocks(t)
+    f = TK.trivial_fusiontree(t)
+    return (f => subblock(t, f),)
+end
+
+function _copy_subblocks!(tdst::TensorMap, tsrc::AbstractBlockTensorMap)
+    offsets = map(_sumspace_offsets, eachspace(tsrc).sumspaces)
+    dst = Base.Fix1(_cachedsubblock, _subblockcache(tdst))
+    for (I, v) in nonzero_pairs(tsrc), (f, src) in _subblock_pairs(v)
+        copy!(view(dst(f), _subblock_ranges(offsets, f, I)...), src)
+    end
+    return tdst
+end
+
+function _copy_subblocks!(tdst::AbstractBlockTensorMap, tsrc::AbstractTensorMap)
+    offsets = map(_sumspace_offsets, eachspace(tdst).sumspaces)
+    src = Base.Fix1(_cachedsubblock, _subblockcache(tsrc))
+    for (I, V) in pairs(eachspace(tdst))
+        v = similar(eltype(tdst), V)
+        vblocks = _subblock_pairs(v)
+        issparse(tdst) && all(isempty ∘ last, vblocks) && continue
+        for (f, dst) in vblocks
+            copy!(dst, view(src(f), _subblock_ranges(offsets, f, I)...))
         end
-        copy!(dstblocks[(f₁, f₂)][ranges...], src)
+        @inbounds tdst[I] = v
     end
     return tdst
 end
