@@ -166,6 +166,7 @@ end
     W = V1 ⊗ V2 ← V1 ⊗ V2
     for T in (Float64, ComplexF64)
         t = sprand(T, W, 0.5)
+        t[1] = randn(T, space(t[1]))
         t′ = convert(TensorMap, t)
         for p in (1, 2, 3, Inf)
             @test norm(t, p) ≈ norm(t′, p)
