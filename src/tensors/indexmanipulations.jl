@@ -24,7 +24,7 @@ end
     @inbounds for (I, v) in nonzero_pairs(tsrc)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
         tdst[I′] = TK.add_transform!(
-            tdst[I′], v, p_lin, transformer, α, One(), backend, allocator
+            getindex!(tdst, I′, allocator), v, p_lin, transformer, α, One(), backend, allocator
         )
     end
     return tdst
@@ -39,7 +39,7 @@ function TK.add_transform!(
     @inbounds for (I, v) in nonzero_pairs(tsrc)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
         tdst[I′] = TK.add_transform!(
-            tdst[I′], v, p, transformer, α, One(), backend, allocator
+            getindex!(tdst, I′, allocator), v, p, transformer, α, One(), backend, allocator
         )
     end
     return tdst
@@ -88,7 +88,9 @@ for f in (:permute, :transpose)
             p_lin = (p[1]..., p[2]...)
             @inbounds for (I, v) in nonzero_pairs(tsrc)
                 I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-                tdst[I′] = TK.$f!(tdst[I′], v, p, α, One(), backend, allocator)
+                tdst[I′] = TK.$f!(
+                    getindex!(tdst, I′, allocator), v, p, α, One(), backend, allocator
+                )
             end
             return tdst
         end
@@ -101,7 +103,9 @@ for f in (:permute, :transpose)
             p_lin = (p[1]..., p[2]...)
             @inbounds for (I, v) in nonzero_pairs(tsrc)
                 I′ = CartesianIndex(TT.getindices(I.I, p))
-                tdst[I′] = TK.$f!(tdst[I′], v, (p₁, p₂), α, One(), backend, allocator)
+                tdst[I′] = TK.$f!(
+                    getindex!(tdst, I′, allocator), v, (p₁, p₂), α, One(), backend, allocator
+                )
             end
             return tdst
         end
@@ -147,7 +151,9 @@ end
     p_lin = (p[1]..., p[2]...)
     @inbounds for (I, v) in nonzero_pairs(tsrc)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        tdst[I′] = TK.braid!(tdst[I′], v, p, levels, α, One(), backend, allocator)
+        tdst[I′] = TK.braid!(
+            getindex!(tdst, I′, allocator), v, p, levels, α, One(), backend, allocator
+        )
     end
     return tdst
 end
@@ -160,7 +166,9 @@ function TK.braid!(
     p_lin = (p[1]..., p[2]...)
     @inbounds for (I, v) in nonzero_pairs(tsrc)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        tdst[I′] = TK.braid!(tdst[I′], v, p, levels, α, One(), backend, allocator)
+        tdst[I′] = TK.braid!(
+            getindex!(tdst, I′, allocator), v, p, levels, α, One(), backend, allocator
+        )
     end
     return tdst
 end
