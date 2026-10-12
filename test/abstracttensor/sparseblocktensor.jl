@@ -321,16 +321,24 @@ end
     end
 end
 
-@testset "in-place fillers store missing entries" begin
+@testset "in-place fillers store only the entries they fill" begin
     Vu = Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2) ⊞ Vect[U1Irrep](0 => 3, 1 => 1) ⊞ Vect[U1Irrep](0 => 1, 2 => 1)
-    W = Vu ⊗ Vu ← Vu ⊗ Vu
-    for f! in (t -> fill!(t, 2.0), TensorKit.one!, TensorKit.isomorphism!, TensorKit.isometry!)
-        @test f!(sprand(W, 0.3)) == f!(BlockTensorMap(spzeros(W)))
-    end
-    for f! in (rand!, randn!, randexp!, randisometry!)
-        t = f!(spzeros(W))
-        @test nonzero_length(t) == length(t)
-        @test norm(t) > 0
+    filled(t) = Set(I for (I, v) in nonzero_pairs(t) if !iszero(norm(v)))
+    nonempty(t) = Set(I for (I, V) in pairs(eachspace(t)) if dim(V) > 0)
+    for W in (Vu ⊗ Vu ← Vu ⊗ Vu, Vu ⊗ Vu ← Vu)
+        fillers = (t -> fill!(t, 2.0), TensorKit.isometry!)
+        codomain(W) == domain(W) && (fillers = (fillers..., TensorKit.one!, TensorKit.isomorphism!))
+        for f! in fillers
+            t = f!(sprand(W, 0.3))
+            td = f!(BlockTensorMap(spzeros(W)))
+            @test t == td
+            @test Set(nonzero_keys(t)) == filled(td)
+        end
+        @test nonzero_length(fill!(sprand(W, 0.3), 0)) == 0
+        for f! in (rand!, randn!, randexp!, randisometry!)
+            t = f!(spzeros(W))
+            @test Set(nonzero_keys(t)) == nonempty(t)
+        end
     end
     t = randisometry!(spzeros(Vu ⊗ Vu ← Vu))
     @test t' * t ≈ id(domain(t))

@@ -186,21 +186,40 @@ function Base.delete!(t::SparseBlockTensorMap{TT}, I::Vararg{Int, N}) where {TT,
 end
 
 # Blocks of missing entries are detached zeros, so the in-place fillers that write through
-# `blocks` first store every missing entry.
-function storeall!(t::SparseBlockTensorMap)
+# `blocks` first store the (nonempty) entries they write to.
+function storeentries!(t::SparseBlockTensorMap, keep = Returns(true))
     for (I, V) in pairs(eachspace(t))
-        haskey(t, I) || (t[I] = zerovector!(similar(eltype(t), V)))
+        !haskey(t, I) && dim(V) > 0 && keep(I) && (t[I] = zerovector!(similar(eltype(t), V)))
     end
     return t
 end
+# the entries that overlap the diagonal of a block, i.e. the ones `one!` writes nonzeros to
+function diagonalentries(t::SparseBlockTensorMap)
+    inds = reshape(collect(eachindex(IndexCartesian(), t)), :, prod(TT.getindices(size(t), domainind(t))))
+    entries = Set{eltype(inds)}()
+    for c in blocksectors(t)
+        rows = cumsum(pushfirst!(_blockdims(codomain(t), c), 0))
+        cols = cumsum(pushfirst!(_blockdims(domain(t), c), 0))
+        for j in axes(inds, 2), i in axes(inds, 1)
+            max(rows[i], cols[j]) < min(rows[i + 1], cols[j + 1]) && push!(entries, inds[i, j])
+        end
+    end
+    return entries
+end
+
 Base.fill!(t::SparseBlockTensorMap, value::Number) =
-    invoke(fill!, Tuple{AbstractTensorMap, Number}, storeall!(t), value)
+    iszero(value) ? zerovector!(t) : invoke(fill!, Tuple{AbstractTensorMap, Number}, storeentries!(t), value)
 for f in (:(TK.one!), :(TK.isomorphism!), :(TK.isometry!))
-    @eval $f(t::SparseBlockTensorMap) = invoke($f, Tuple{AbstractTensorMap}, storeall!(t))
+    @eval function $f(t::SparseBlockTensorMap)
+        diagonal = diagonalentries(t)
+        invoke($f, Tuple{AbstractTensorMap}, storeentries!(t, in(diagonal)))
+        filter!(in(diagonal) ∘ first, t.data)
+        return t
+    end
 end
 for f in (:(Random.rand!), :(Random.randn!), :(Random.randexp!), :(TK.randisometry!))
     @eval $f(rng::Random.AbstractRNG, t::SparseBlockTensorMap) =
-        invoke($f, Tuple{Random.AbstractRNG, AbstractTensorMap}, rng, storeall!(t))
+        invoke($f, Tuple{Random.AbstractRNG, AbstractTensorMap}, rng, storeentries!(t))
 end
 
 # Show
