@@ -24,7 +24,7 @@ for f in (:permute, :transpose)
             )
             @boundscheck TK.spacecheck_transform(TK.$f, tdst, tsrc, p)
             p_lin = (p[1]..., p[2]...)
-            _scale_untouched!(tdst, tsrc, β, I -> CartesianIndex(TT.getindices(I.I, p_lin)))
+            _scale_untouched!(tdst, tsrc, β, p_lin)
             @inbounds for (I, v) in nonzero_pairs(tsrc)
                 I′ = CartesianIndex(TT.getindices(I.I, p_lin))
                 _addblock!(tdst, I′, β, allocator) do c, γ
@@ -72,7 +72,7 @@ end
     )
     @boundscheck TK.spacecheck_transform(braid, tdst, tsrc, p, levels)
     p_lin = (p[1]..., p[2]...)
-    _scale_untouched!(tdst, tsrc, β, I -> CartesianIndex(TT.getindices(I.I, p_lin)))
+    _scale_untouched!(tdst, tsrc, β, p_lin)
     @inbounds for (I, v) in nonzero_pairs(tsrc)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
         _addblock!(tdst, I′, β, allocator) do c, γ

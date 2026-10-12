@@ -138,6 +138,9 @@ _sectorsubset(S₁::SumSpace, S₂::SumSpace) = all(V -> all(s -> hassector(S₂
 function TensorKit.sectorequal(S₁::SumSpace, S₂::SumSpace)
     return isdual(S₁) == isdual(S₂) && _sectorsubset(S₁, S₂) && _sectorsubset(S₂, S₁)
 end
+# `sectorequal` compares the set of sectors, so the hash may only depend on that set. The min and
+# max sector hash are independent of component order and duplicates and need no allocation, at the
+# cost of more collisions than hashing the full sorted set; collisions only fall back to `sectorequal`.
 function TensorKit.sectorhash(S::SumSpace, h::UInt)
     lo, hi = typemax(UInt), typemin(UInt)
     for V in S.spaces, s in sectors(V)

@@ -35,25 +35,24 @@ end
 
 # Blocks and subblocks
 # --------------------
-_entrycache(f, t::AbstractBlockTensorMap) =
+mapentries(f, t::AbstractBlockTensorMap) =
     issparse(t) ? Dict(I => f(x) for (I, x) in nonzero_pairs(t)) : map(f, parent(t))
 
-_blockcache(x) = x
-_blockcache(x::AbstractTensorMap) = (b = TK.blocks(x); b isa TK.BlockIterator ? b : x)
-_cachedblock(x, c::Sector) = block(x, c)
-_cachedblock(b::TK.BlockIterator, c::Sector) = b[c]
+blockcache(x) = x
+blockcache(x::AbstractTensorMap) = (b = TK.blocks(x); b isa TK.BlockIterator ? b : x)
+getblock(x, c::Sector) = block(x, c)
+getblock(b::TK.BlockIterator, c::Sector) = b[c]
 
-_subblockcache(x) = x
-_subblockcache(x::AbstractTensorMap) = sectortype(x) === Trivial ? x : TK.subblocks(x)
-_cachedsubblock(x, f) = subblock(x, f)
-_cachedsubblock(s::TK.SubblockIterator, f) = s[f]
+subblockcache(x) = sectortype(x) === Trivial ? x : TK.subblocks(x)
+getsubblock(x, f) = subblock(x, f)
+getsubblock(s::TK.SubblockIterator, f) = s[f]
 
 TensorKit.blocks(t::AbstractBlockTensorMap) =
-    TK.BlockIterator(t, (blocksectors(t), _entrycache(_blockcache, t)))
+    TK.BlockIterator(t, (blocksectors(t), mapentries(blockcache, t)))
 TensorKit.block(t::AbstractBlockTensorMap, c::Sector) = _block(t, parent(t), c)
 
 TensorKit.subblocks(t::AbstractBlockTensorMap) =
-    TK.SubblockIterator(t, (TK.fusiontrees(t), _entrycache(_subblockcache, t)))
+    TK.SubblockIterator(t, (TK.fusiontrees(t), mapentries(subblockcache, t)))
 TensorKit.subblock(t::AbstractBlockTensorMap, f::Tuple{FusionTree, FusionTree}) = _subblock(t, parent(t), f)
 
 Base.length(iter::TK.BlockIterator{<:AbstractBlockTensorMap}) = length(first(iter.structure))
@@ -87,10 +86,10 @@ function _block(t::AbstractBlockTensorMap, entries, c::Sector)
     allblocks = Matrix{_blockeltype(typeof(t))}(undef, length(rowdims), length(coldims))
     for (k, I) in enumerate(eachindex(IndexCartesian(), t))
         allblocks[k] = if !issparse(t) || haskey(entries, I)
-            _cachedblock(entries[I], c)
+            getblock(entries[I], c)
         else
             i, j = Tuple(CartesianIndices(allblocks)[k])
-            _zeroblock(t, I, rowdims[i], coldims[j], c)
+            zeroblock(eltype(t), rowdims[i], coldims[j])
         end
     end
     return mortar(allblocks, rowdims, coldims)
@@ -108,7 +107,7 @@ function _subblock(t::AbstractBlockTensorMap, entries, (f₁, f₂)::Tuple{Fusio
         if prod(sz) == 0 || (issparse(t) && !haskey(entries, I))
             return sreshape(StridedView(zerovector!(similar(storagetype(t), prod(sz)))), sz)
         else
-            return _cachedsubblock(entries[I], (f₁, f₂))
+            return getsubblock(entries[I], (f₁, f₂))
         end
     end
     return mortar(subblocks)
@@ -122,11 +121,14 @@ function _blockdims(P::ProductSumSpace{S, N}, c::Sector) where {S, N}
     )
 end
 
-function _zeroblock(t::AbstractBlockTensorMap, I, d₁::Int, d₂::Int, c::Sector)
-    eltype(t) <: TensorMap || return block(zerovector!(similar(eltype(t), eachspace(t)[I])), c)
-    data = zerovector!(similar(storagetype(t), d₁ * d₂))
+zeroblock(::Type{TT}, d₁::Int, d₂::Int) where {TT <: AbstractTensorMap} =
+    zerovector!(similar(storagetype(TT), d₁, d₂))
+function zeroblock(::Type{TT}, d₁::Int, d₂::Int) where {TT <: TensorMap}
+    data = zerovector!(similar(storagetype(TT), d₁ * d₂))
     return reshape(view(data, 1:(d₁ * d₂)), (d₁, d₂))
 end
+zeroblock(::Type{<:AdjointTensorMap{<:Any, <:Any, <:Any, <:Any, TT}}, d₁::Int, d₂::Int) where {TT} =
+    zeroblock(TT, d₂, d₁)'
 
 # TODO: this might get fixed once new tensormap is implemented
 TensorKit.blocksectors(t::AbstractBlockTensorMap) = blocksectors(space(t))
@@ -144,9 +146,9 @@ end
 
 function TensorKit.foreachblock(f, t::AbstractBlockTensorMap, ts...; scheduler = nothing)
     tensors = (t, ts...)
-    iters = map(_blockcache, tensors)
+    iters = map(blockcache, tensors)
     foreach(union(blocksectors.(tensors)...)) do c
-        return f(c, map(Base.Fix2(_cachedblock, c), iters))
+        return f(c, map(Base.Fix2(getblock, c), iters))
     end
     return nothing
 end

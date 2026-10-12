@@ -22,7 +22,7 @@ function TO.tensoradd!(
         α::Number, β::Number, backend, allocator
     )
     p_lin = (pA[1]..., pA[2]...)
-    _scale_untouched!(C, A, β, I -> CartesianIndex(TT.getindices(I.I, p_lin)))
+    _scale_untouched!(C, A, β, p_lin)
     @inbounds for (I, v) in nonzero_pairs(A)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
         _addblock!(C, I′, β, allocator) do c, γ
@@ -147,7 +147,7 @@ function TK.trace_permute!(
                     q₁ = $(q₁), q₂ = $(q₂)"))
     end
 
-    _prescale!(tdst, β)
+    isone(β) || (iszero(β) ? zerovector!(tdst) : scale!(tdst, β))
     @inbounds for (Isrc, vsrc) in nonzero_pairs(tsrc)
         TT.getindices(Isrc.I, q₁) == TT.getindices(Isrc.I, q₂) || continue
         Idst = CartesianIndex(TT.getindices(Isrc.I, (p₁..., p₂...)))

@@ -47,3 +47,4 @@ end
 function nonzero_length(t::AdjointBlockTensorMap)
     return nonzero_length(t')
 end
+Base.haskey(t::AdjointBlockTensorMap, I::CartesianIndex) = haskey(t', permute_adjointindices(t', I))

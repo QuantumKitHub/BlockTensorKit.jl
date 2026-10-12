@@ -48,27 +48,28 @@ end
 
 # blockwise updates
 # -----------------
-_newblock(t::AbstractBlockTensorMap, I, allocator = TO.DefaultAllocator()) =
-    TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator)
-
-@propagate_inbounds function _addblock!(
+@inline function _addblock!(
         f, t::AbstractBlockTensorMap, I::CartesianIndex, β::Number = One(), allocator = TO.DefaultAllocator()
     )
-    t[I] = haskey(t, I) ? f(t[I], β) : f(_newblock(t, I, allocator), Zero())
+    t[I] = if haskey(t, I)
+        f(t[I], β)
+    else
+        f(TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator), Zero())
+    end
     return t
 end
 
-_prescale!(t::AbstractBlockTensorMap, β::Number) =
-    isone(β) ? t : iszero(β) ? zerovector!(t) : scale!(t, β)
-
-function _scale_untouched!(t::AbstractBlockTensorMap, tsrc::AbstractTensorMap, β::Number, Imap = identity)
+function _scale_untouched!(
+        t::AbstractBlockTensorMap, tsrc::AbstractTensorMap, β::Number, p::IndexTuple = ntuple(identity, numind(t))
+    )
     (issparse(tsrc) && !isone(β)) || return t
-    touched = Set(Imap(I) for I in nonzero_keys(tsrc))
+    q = TT.invperm(p)
+    istouched(I) = haskey(tsrc, CartesianIndex(TT.getindices(I.I, q)))
     if issparse(t) && iszero(β)
-        filter!(∈(touched) ∘ first, parent(t))
+        filter!(istouched ∘ first, parent(t))
     else
         for (I, v) in nonzero_pairs(t)
-            I ∈ touched || scale!(v, β)
+            istouched(I) || scale!(v, β)
         end
     end
     return t
