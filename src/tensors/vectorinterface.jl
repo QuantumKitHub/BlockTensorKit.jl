@@ -52,7 +52,7 @@ end
         f, t::AbstractBlockTensorMap, I::CartesianIndex, β::Number = One(), allocator = TO.DefaultAllocator()
     )
     t[I] = if haskey(t, I)
-        f(t[I], β)
+        f(t[I], isone(β) ? One() : β)
     else
         f(TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator), Zero())
     end
