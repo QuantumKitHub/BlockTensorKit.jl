@@ -16,6 +16,17 @@ function copy_dense!(Adense, A)
     return Adense
 end
 
+function copy_blocks!(A::BlockMatrix, Adense)
+    for block_index in Iterators.product(blockaxes(A)...)
+        a = view(A, block_index...)
+        isempty(a) && continue
+        indices = getindex.(axes(A), block_index)
+        a .= view(Adense, indices...)
+    end
+    return A
+end
+copy_blocks!(A, Adense) = copyto!(A, Adense)
+
 const BlockBlasMat{T <: MAK.BlasFloat} = BlockMatrix{T}
 
 function MAK.zero!(A::BlockBlasMat)

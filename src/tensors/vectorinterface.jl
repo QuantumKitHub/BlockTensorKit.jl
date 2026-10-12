@@ -10,15 +10,8 @@ function VI.scale!(t::AbstractBlockTensorMap, α::Number)
     return t
 end
 
-function VI.scale!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number)
-    space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    # entries of ty that are structurally zero in tx have to be zeroed out
-    issparse(tx) && zerovector!(ty)
-    for (I, v) in nonzero_pairs(tx)
-        ty[I] = scale!!(ty[I], v, α)
-    end
-    return ty
-end
+VI.scale!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number) =
+    add!(ty, tx, α, Zero())
 
 # add
 # ---
@@ -31,7 +24,7 @@ function VI.add(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Numb
     # This would give issues for example with DiagonalTensorMap + TensorMap
     T = VectorInterface.promote_add(ty, tx, α, β)
     tdst = if typeof(ty) === typeof(tx)
-        zerovector(ty, T)
+        similar(ty, T)
     else
         M = TK.promote_storagetype(TK.similarstoragetype(ty, T), TK.similarstoragetype(tx, T))
         if issparse(ty) && issparse(tx)
@@ -46,11 +39,40 @@ end
 
 function VI.add!(ty::AbstractBlockTensorMap, tx::AbstractBlockTensorMap, α::Number, β::Number)
     space(ty) == space(tx) || throw(SpaceMismatch("$(space(ty)) ≠ $(space(tx))"))
-    isone(β) || scale!(ty, β)
+    _scale_untouched!(ty, tx, β)
     for (I, v) in nonzero_pairs(tx)
-        ty[I] = add!!(ty[I], v, α, One())
+        _addblock!((y, γ) -> add!!(y, v, α, γ), ty, I, β)
     end
     return ty
+end
+
+# blockwise updates
+# -----------------
+@inline function _addblock!(
+        f, t::AbstractBlockTensorMap, I::CartesianIndex, β::Number = One(), allocator = TO.DefaultAllocator()
+    )
+    t[I] = if haskey(t, I)
+        f(t[I], isone(β) ? One() : β)
+    else
+        f(TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator), Zero())
+    end
+    return t
+end
+
+function _scale_untouched!(
+        t::AbstractBlockTensorMap, tsrc::AbstractTensorMap, β::Number, p::IndexTuple = ntuple(identity, numind(t))
+    )
+    (issparse(tsrc) && !isone(β)) || return t
+    q = TT.invperm(p)
+    istouched(I) = haskey(tsrc, CartesianIndex(TT.getindices(I.I, q)))
+    if issparse(t) && iszero(β)
+        filter!(istouched ∘ first, parent(t))
+    else
+        for (I, v) in nonzero_pairs(t)
+            istouched(I) || scale!(v, β)
+        end
+    end
+    return t
 end
 
 # inner

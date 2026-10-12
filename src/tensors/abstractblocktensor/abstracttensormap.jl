@@ -10,34 +10,14 @@ end
 
 eachspace(t::AbstractBlockTensorMap) = SumSpaceIndices(space(t))
 
-@inline function TensorKit.subblock(
-        t::AbstractBlockTensorMap, (f₁, f₂)::Tuple{FusionTree, FusionTree}
-    )
-    sectortype(t) === sectortype(f₁) === sectortype(f₂) ||
-        throw(SectorMismatch("Not a valid sectortype for this tensor"))
-    numout(t) == length(f₁) && numin(t) == length(f₂) ||
-        throw(DimensionMismatch("Invalid number of fusiontree legs for this tensor"))
-
-    subblocks = map(eachspace(t), parent(t)) do V, x
-        sz = (dims(codomain(V), f₁.uncoupled)..., dims(domain(V), f₂.uncoupled)...)
-        if prod(sz) == 0
-            data = storagetype(t)(undef, 0)
-            return sreshape(StridedView(data), sz)
-        else
-            return x[f₁, f₂]
-        end
-    end
-
-    return mortar(subblocks)
-end
 @inline function Base.setindex!(
         t::AbstractBlockTensorMap, v::AbstractBlockArray, f₁::FusionTree, f₂::FusionTree
     )
     for I in eachindex(t)
-        b = v[Block(I.I)]
-        if !isempty(b)
-            getindex!(t, I)[f₁, f₂] = v[Block(I.I)]
-        end
+        b = view(v, Block(I.I))
+        isempty(b) && continue
+        x = issparse(t) ? getindex!(t, I) : t[I]
+        x[f₁, f₂] = b
     end
     return t
 end
@@ -53,57 +33,124 @@ end
     return setindex!(t, v′, f₁, f₂)
 end
 
-function TensorKit.block(t::AbstractBlockTensorMap, c::Sector)
-    sectortype(t) == typeof(c) || throw(SectorMismatch())
+# Blocks and subblocks
+# --------------------
+mapentries(f, t::AbstractBlockTensorMap) =
+    issparse(t) ? Dict(I => f(x) for (I, x) in nonzero_pairs(t)) : map(f, parent(t))
 
-    rows = prod(TT.getindices(size(t), codomainind(t)))
-    cols = prod(TT.getindices(size(t), domainind(t)))
+blockcache(x) = x
+blockcache(x::AbstractTensorMap) = (b = TK.blocks(x); b isa TK.BlockIterator ? b : x)
+getblock(x, c::Sector) = block(x, c)
+getblock(b::TK.BlockIterator, c::Sector) = b[c]
 
-    if rows == 0 || cols == 0
-        allblocks = Matrix{TK.blocktype(eltype(t))}(undef, rows, cols)
+subblockcache(x) = sectortype(x) === Trivial ? x : TK.subblocks(x)
+getsubblock(x, f) = subblock(x, f)
+getsubblock(s::TK.SubblockIterator, f) = s[f]
 
-        rowaxes = Int[]
-        if rows != 0
-            W′ = codomain(t) ← zero(spacetype(t))
-            for V in eachspace(W′)
-                push!(rowaxes, blockdim(codomain(V), c))
-            end
-        end
+TensorKit.blocks(t::AbstractBlockTensorMap) =
+    TK.BlockIterator(t, (blocksectors(t), mapentries(blockcache, t)))
+TensorKit.block(t::AbstractBlockTensorMap, c::Sector) = _block(t, parent(t), c)
 
-        colaxes = Int[]
-        if cols != 0
-            W′ = zero(spacetype(t)) ← domain(t)
-            for V in eachspace(W′)
-                push!(colaxes, blockdim(domain(V), c))
-            end
-        end
+TensorKit.subblocks(t::AbstractBlockTensorMap) =
+    TK.SubblockIterator(t, (TK.fusiontrees(t), mapentries(subblockcache, t)))
+TensorKit.subblock(t::AbstractBlockTensorMap, f::Tuple{FusionTree, FusionTree}) = _subblock(t, parent(t), f)
 
-        return mortar(allblocks, rowaxes, colaxes)
-    end
-
-    allblocks = map(Base.Fix2(block, c), parent(t))
-    return mortar(reshape(allblocks, rows, cols))
+Base.length(iter::TK.BlockIterator{<:AbstractBlockTensorMap}) = length(first(iter.structure))
+Base.isdone(iter::TK.BlockIterator{<:AbstractBlockTensorMap}, state...) =
+    Base.isdone(first(iter.structure), state...)
+function Base.iterate(iter::TK.BlockIterator{<:AbstractBlockTensorMap}, state...)
+    next = iterate(first(iter.structure), state...)
+    isnothing(next) && return next
+    c, newstate = next
+    return c => iter[c], newstate
 end
+Base.getindex(iter::TK.BlockIterator{<:AbstractBlockTensorMap}, c::Sector) =
+    _block(iter.t, last(iter.structure), c)
+
+Base.length(iter::TK.SubblockIterator{<:AbstractBlockTensorMap}) = length(first(iter.structure))
+Base.isdone(iter::TK.SubblockIterator{<:AbstractBlockTensorMap}, i::Int = 1) = i > length(iter)
+function Base.iterate(iter::TK.SubblockIterator{<:AbstractBlockTensorMap}, i::Int = 1)
+    i > length(iter) && return nothing
+    f = TK.gettokenvalue(first(iter.structure), i)
+    return f => iter[f], i + 1
+end
+Base.getindex(iter::TK.SubblockIterator{<:AbstractBlockTensorMap}, i::Int) =
+    iter[TK.gettokenvalue(first(iter.structure), i)]
+Base.getindex(iter::TK.SubblockIterator{<:AbstractBlockTensorMap}, f::Tuple{FusionTree, FusionTree}) =
+    _subblock(iter.t, last(iter.structure), f)
+
+function _block(t::AbstractBlockTensorMap, entries, c::Sector)
+    sectortype(t) == typeof(c) || throw(SectorMismatch())
+    rowdims = _blockdims(codomain(t), c)
+    coldims = _blockdims(domain(t), c)
+    allblocks = Matrix{_blockeltype(typeof(t))}(undef, length(rowdims), length(coldims))
+    for (k, I) in enumerate(eachindex(IndexCartesian(), t))
+        allblocks[k] = if !issparse(t) || haskey(entries, I)
+            getblock(entries[I], c)
+        else
+            i, j = Tuple(CartesianIndices(allblocks)[k])
+            zeroblock(eltype(t), rowdims[i], coldims[j])
+        end
+    end
+    return mortar(allblocks, rowdims, coldims)
+end
+
+function _subblock(t::AbstractBlockTensorMap, entries, (f₁, f₂)::Tuple{FusionTree, FusionTree})
+    sectortype(t) === sectortype(f₁) === sectortype(f₂) ||
+        throw(SectorMismatch("Not a valid sectortype for this tensor"))
+    numout(t) == length(f₁) && numin(t) == length(f₂) ||
+        throw(DimensionMismatch("Invalid number of fusiontree legs for this tensor"))
+    W = eachspace(t)
+    subblocks = map(eachindex(IndexCartesian(), t)) do I
+        V = W[I]
+        sz = (dims(codomain(V), f₁.uncoupled)..., dims(domain(V), f₂.uncoupled)...)
+        if prod(sz) == 0 || (issparse(t) && !haskey(entries, I))
+            return sreshape(StridedView(zerovector!(similar(storagetype(t), prod(sz)))), sz)
+        else
+            return getsubblock(entries[I], (f₁, f₂))
+        end
+    end
+    return mortar(subblocks)
+end
+
+function _blockdims(P::ProductSumSpace{S, N}, c::Sector) where {S, N}
+    return vec(
+        map(CartesianIndices(map(length, P.spaces))) do I
+            return blockdim(ProductSpace{S, N}(map(getindex, P.spaces, Tuple(I))), c)
+        end
+    )
+end
+
+zeroblock(::Type{TT}, d₁::Int, d₂::Int) where {TT <: AbstractTensorMap} =
+    zerovector!(similar(storagetype(TT), d₁, d₂))
+function zeroblock(::Type{TT}, d₁::Int, d₂::Int) where {TT <: TensorMap}
+    data = zerovector!(similar(storagetype(TT), d₁ * d₂))
+    return reshape(view(data, 1:(d₁ * d₂)), (d₁, d₂))
+end
+zeroblock(::Type{<:AdjointTensorMap{<:Any, <:Any, <:Any, <:Any, TT}}, d₁::Int, d₂::Int) where {TT} =
+    zeroblock(TT, d₂, d₁)'
 
 # TODO: this might get fixed once new tensormap is implemented
 TensorKit.blocksectors(t::AbstractBlockTensorMap) = blocksectors(space(t))
 TensorKit.hasblock(t::AbstractBlockTensorMap, c::Sector) = c in blocksectors(t)
 
-TensorKit.blocks(t::AbstractBlockTensorMap) = TK.BlockIterator(t, blocksectors(t))
-Base.@assume_effects :foldable function TensorKit.blocktype(::Type{TT}) where {TT <: AbstractBlockTensorMap}
+Base.@assume_effects :foldable function _blockeltype(::Type{TT}) where {TT <: AbstractBlockTensorMap}
     T = scalartype(TT)
     B = TK.blocktype(eltype(TT))
-    (B <: AbstractMatrix{T}) || (B = AbstractMatrix{T}) # safeguard against type-instability
+    return B <: AbstractMatrix{T} ? B : AbstractMatrix{T} # safeguard against type-instability
+end
+function TensorKit.blocktype(::Type{TT}) where {TT <: AbstractBlockTensorMap}
     BS = NTuple{2, BlockedOneTo{Int, Vector{Int}}}
-    return BlockMatrix{T, Matrix{B}, BS}
+    return BlockMatrix{scalartype(TT), Matrix{_blockeltype(TT)}, BS}
 end
 
-function Base.iterate(iter::TK.BlockIterator{<:AbstractBlockTensorMap}, state...)
-    next = iterate(iter.structure, state...)
-    isnothing(next) && return next
-    c, newstate = next
-    return c => block(iter.t, c), newstate
+function TensorKit.foreachblock(f, t::AbstractBlockTensorMap, ts...; scheduler = nothing)
+    tensors = (t, ts...)
+    iters = map(blockcache, tensors)
+    foreach(union(blocksectors.(tensors)...)) do c
+        return f(c, map(Base.Fix2(getblock, c), iters))
+    end
+    return nothing
 end
-Base.getindex(iter::TK.BlockIterator{<:AbstractBlockTensorMap}, c::Sector) = block(iter.t, c)
 
 TK.storagetype(::Type{TT}) where {TT <: AbstractBlockTensorMap} = storagetype(eltype(TT))

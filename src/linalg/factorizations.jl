@@ -28,7 +28,7 @@ for f! in (
             Fblocks′ = MAK.$f!(copy_dense!(similar_dense(tblock), tblock), alg)
             # deal with the case where the output is not in-place
             for (b′, b) in zip(Fblocks′, Fblocks)
-                b === b′ || copyto!(b, b′)
+                b === b′ || copy_blocks!(b, b′)
             end
             return nothing
         end
@@ -46,7 +46,7 @@ for f! in (
         TensorKit.foreachblock(t, N) do _, (tblock, Nblock)
             Nblock′ = MAK.$f!(copy_dense!(similar_dense(tblock), tblock), alg)
             # deal with the case where the output is not the same as the input
-            Nblock === Nblock′ || copyto!(Nblock, Nblock′)
+            Nblock === Nblock′ || copy_blocks!(Nblock, Nblock′)
             return nothing
         end
         return N
@@ -186,12 +186,12 @@ end
 function TensorKit.Factorizations.truncate_domain!(tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap, inds)
     TensorKit.foreachblock(tdst, tsrc) do c, (dst_block, src_block)
         I = get(inds, c, nothing)
-        dst_dense = copy_dense!(similar_dense(dst_block), dst_block)
+        dst_dense = similar_dense(dst_block)
         src_dense = copy_dense!(similar_dense(src_block), src_block)
         @assert !isnothing(I)
         @views dst_dense .= src_dense[:, I]
         # deal with the case where the output is not in-place
-        dst_dense === dst_block || copyto!(dst_block, dst_dense)
+        dst_dense === dst_block || copy_blocks!(dst_block, dst_dense)
         return nothing
     end
     return tdst
@@ -199,12 +199,12 @@ end
 function TensorKit.Factorizations.truncate_codomain!(tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap, inds)
     TensorKit.foreachblock(tdst, tsrc) do c, (dst_block, src_block)
         I = get(inds, c, nothing)
-        dst_dense = copy_dense!(similar_dense(dst_block), dst_block)
+        dst_dense = similar_dense(dst_block)
         src_dense = copy_dense!(similar_dense(src_block), src_block)
         @assert !isnothing(I)
         @views dst_dense .= src_dense[I, :]
         # deal with the case where the output is not in-place
-        dst_dense === dst_block || copyto!(dst_block, dst_dense)
+        dst_dense === dst_block || copy_blocks!(dst_block, dst_dense)
         return nothing
     end
     return tdst

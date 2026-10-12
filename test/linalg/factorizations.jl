@@ -5,6 +5,8 @@ using BlockTensorKit
 using Random
 using Combinatorics
 using LinearAlgebra
+using Adapt
+using JLArrays
 
 Vtr = (
     SumSpace(ℂ^3),
@@ -526,3 +528,28 @@ end
 #         end
 #     end
 # end
+
+@testset "In-place write-back into block storage" begin
+    V1 = SumSpace(ℂ^2, ℂ^2)
+    V2 = SumSpace(ℂ^3, ℂ^1)
+    D = DiagonalTensorMap(rand(dim(V1)), V1)
+    D′ = DiagonalTensorMap(D.data, ℂ^4)
+    t = rand(V1 ← V1 ⊗ V2)
+    t0 = TensorMap(t)
+    @test TensorMap(lmul!(D, t)) ≈ D′ * t0
+    t = rand(V1 ⊗ V2 ← V1)
+    t0 = TensorMap(t)
+    @test TensorMap(rmul!(t, D)) ≈ t0 * D′
+
+    t = rand(V1 ← V1 ⊗ V2)
+    b = block(t, first(blocksectors(t)))
+    d = BlockTensorKit.copy_dense!(BlockTensorKit.similar_dense(b), b) .* 2
+    BlockTensorKit.copy_blocks!(b, d)
+    @test BlockTensorKit.copy_dense!(BlockTensorKit.similar_dense(b), b) == d
+
+    tg = adapt(JLVector{Float64}, t)
+    c = first(blocksectors(t))
+    BlockTensorKit.copy_blocks!(block(t, c), d .* 3)
+    BlockTensorKit.copy_blocks!(block(tg, c), JLArray(d .* 3))
+    @test adapt(Vector{Float64}, tg) ≈ t
+end
