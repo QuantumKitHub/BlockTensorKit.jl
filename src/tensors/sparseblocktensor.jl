@@ -185,6 +185,24 @@ function Base.delete!(t::SparseBlockTensorMap{TT}, I::Vararg{Int, N}) where {TT,
     return delete!(t, CartesianIndex(I...))
 end
 
+# Blocks of missing entries are detached zeros, so the in-place fillers that write through
+# `blocks` first store every missing entry.
+function storeall!(t::SparseBlockTensorMap)
+    for (I, V) in pairs(eachspace(t))
+        haskey(t, I) || (t[I] = zerovector!(similar(eltype(t), V)))
+    end
+    return t
+end
+Base.fill!(t::SparseBlockTensorMap, value::Number) =
+    invoke(fill!, Tuple{AbstractTensorMap, Number}, storeall!(t), value)
+for f in (:(TK.one!), :(TK.isomorphism!), :(TK.isometry!))
+    @eval $f(t::SparseBlockTensorMap) = invoke($f, Tuple{AbstractTensorMap}, storeall!(t))
+end
+for f in (:(Random.rand!), :(Random.randn!), :(Random.randexp!), :(TK.randisometry!))
+    @eval $f(rng::Random.AbstractRNG, t::SparseBlockTensorMap) =
+        invoke($f, Tuple{Random.AbstractRNG, AbstractTensorMap}, rng, storeall!(t))
+end
+
 # Show
 # ----
 function Base.showarg(io::IO, t::SparseBlockTensorMap, toplevel::Bool)

@@ -320,3 +320,18 @@ end
         end
     end
 end
+
+@testset "in-place fillers store missing entries" begin
+    Vu = Vect[U1Irrep](0 => 2, 1 => 2, -1 => 2) ⊞ Vect[U1Irrep](0 => 3, 1 => 1) ⊞ Vect[U1Irrep](0 => 1, 2 => 1)
+    W = Vu ⊗ Vu ← Vu ⊗ Vu
+    for f! in (t -> fill!(t, 2.0), TensorKit.one!, TensorKit.isomorphism!, TensorKit.isometry!)
+        @test f!(sprand(W, 0.3)) == f!(BlockTensorMap(spzeros(W)))
+    end
+    for f! in (rand!, randn!, randexp!, randisometry!)
+        t = f!(spzeros(W))
+        @test nonzero_length(t) == length(t)
+        @test norm(t) > 0
+    end
+    t = randisometry!(spzeros(Vu ⊗ Vu ← Vu))
+    @test t' * t ≈ id(domain(t))
+end
