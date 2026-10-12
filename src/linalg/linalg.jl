@@ -160,7 +160,7 @@ end
 function LinearAlgebra.norm(tA::AbstractBlockTensorMap, p::Real = 2)
     vals = nonzero_values(tA)
     isempty(vals) && return norm(zero(scalartype(tA)), p)
-    return LinearAlgebra.norm(Iterators.map(Base.Fix2(norm, p), vals), p)
+    return LinearAlgebra.norm(map(Base.Fix2(norm, p), vals), p)
 end
 
 function Base.:(==)(t1::AbstractBlockTensorMap, t2::AbstractBlockTensorMap)
