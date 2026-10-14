@@ -1,7 +1,11 @@
 # zerovector
 # ----------
 VI.zerovector!(t::AbstractBlockTensorMap) = (zerovector!(parent(t)); t)
-VI.zerovector!(t::SparseBlockTensorMap) = (empty!(t.data); t)
+# blocks of temporaries belong to an allocator, and are kept until `tensorfree!`
+function VI.zerovector!(t::SparseBlockTensorMap)
+    istemp(t) ? foreach(zerovector!, nonzero_values(t)) : empty!(t.data)
+    return t
+end
 
 # scale
 # -----
@@ -49,12 +53,12 @@ end
 # blockwise updates
 # -----------------
 @inline function _addblock!(
-        f, t::AbstractBlockTensorMap, I::CartesianIndex, β::Number = One(), allocator = TO.DefaultAllocator()
+        f, t::AbstractBlockTensorMap, I::CartesianIndex, β::Number = One(), allocator = nothing
     )
     t[I] = if haskey(t, I)
         f(t[I], isone(β) ? One() : β)
     else
-        f(TO.tensoralloc(eltype(t), eachspace(t)[I], Val(false), allocator), Zero())
+        f(newblock(t, I, allocator), Zero())
     end
     return t
 end
@@ -65,11 +69,11 @@ function _scale_untouched!(
     (issparse(tsrc) && !isone(β)) || return t
     q = TT.invperm(p)
     istouched(I) = haskey(tsrc, CartesianIndex(TT.getindices(I.I, q)))
-    if issparse(t) && iszero(β)
+    if issparse(t) && iszero(β) && !istemp(t)
         filter!(istouched ∘ first, parent(t))
     else
         for (I, v) in nonzero_pairs(t)
-            istouched(I) || scale!(v, β)
+            istouched(I) || (iszero(β) ? zerovector!(v) : scale!(v, β))
         end
     end
     return t

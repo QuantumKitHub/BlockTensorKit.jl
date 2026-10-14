@@ -3,7 +3,7 @@ using BlockTensorKit
 using TensorKit
 using TensorOperations
 using Random
-using LinearAlgebra: norm
+using LinearAlgebra: norm, mul!
 
 ##
 Vtr = (
@@ -148,5 +148,100 @@ end
         @tensor F2[a, b, c, d, e, f] :=
             convert(TensorMap, D)[a, b, c] * conj(convert(TensorMap, E)[d, e, f])
         @test convert(TensorMap, F1) ≈ F2
+    end
+end
+
+##
+
+# temporaries are `PtrArray`s, such that converting them into other storage is detected
+struct TrackingAllocator
+    live::Set{UInt} # temporaries that were handed out and not freed yet
+    foreign::Base.RefValue{Int} # freed arrays that were not handed out as temporaries
+end
+TrackingAllocator() = TrackingAllocator(Set{UInt}(), Ref(0))
+function TensorOperations.tensoralloc(
+        ::Type{A}, structure, ::Val{istemp}, allocator::TrackingAllocator
+    ) where {A <: AbstractArray, istemp}
+    istemp || return TensorOperations.tensoralloc(A, structure, Val(false))
+    x = fill!(
+        TensorOperations.tensoralloc(A, structure, Val(true), TensorOperations.ManualAllocator()),
+        NaN
+    )
+    push!(allocator.live, objectid(x))
+    return x
+end
+function TensorOperations.tensorfree!(x::AbstractArray, allocator::TrackingAllocator)
+    if objectid(x) in allocator.live
+        delete!(allocator.live, objectid(x))
+        TensorOperations.tensorfree!(x, TensorOperations.ManualAllocator())
+    else
+        allocator.foreign[] += 1
+    end
+    return nothing
+end
+function check_allocator(f)
+    allocator = TrackingAllocator()
+    @test f(allocator) ≈ f(TensorOperations.DefaultAllocator())
+    @test allocator.foreign[] == 0
+    return @test isempty(allocator.live)
+end
+
+@testset "allocator only frees what it allocated ($(sectortype(a)))" for (a, b, c) in (
+        (SumSpace(ℂ^2, ℂ^1), SumSpace(ℂ^1, ℂ^2, ℂ^1), SumSpace(ℂ^2, ℂ^3)),
+        (
+            SumSpace(Vect[FermionParity](0 => 1, 1 => 1), Vect[FermionParity](0 => 2)),
+            SumSpace(Vect[FermionParity](1 => 2), Vect[FermionParity](0 => 1, 1 => 1)),
+            SumSpace(Vect[FermionParity](0 => 1), Vect[FermionParity](1 => 1)),
+        ),
+    )
+    A = sprand(Float64, a ⊗ b ← c, 0.4)
+    B = sprand(Float64, c ⊗ b' ← a, 0.4)
+    D = sprand(Float64, a ← b, 0.4)
+    E = sprand(Float64, a ← b, 0.4)
+    X = sprand(Float64, a ⊗ b ← a ⊗ b, 0.5)
+
+    check_allocator() do al
+        return @tensor allocator = al R[x; q] := A[x z; w] * B[w z; y] * D[y; q]
+    end
+    check_allocator() do al # temporary receiving blocks outside of its initial pattern
+        return @tensor allocator = al R[x; q] := A[x z; w] * B[w z; y] * (D[y; q] + 2 * E[y; q])
+    end
+    check_allocator() do al # several blocks of `X` are traced into the same output block
+        return @tensor allocator = al R[x; q] := X[x z; y z] * D[y; q]
+    end
+    check_allocator() do al
+        return @planar allocator = al R[x; q] := A[x z; w] * B[w z; y] * D[y; q]
+    end
+    Y = sprand(Float64, a ⊗ b ← a ⊗ b, 1.0)
+    T = TensorOperations.tensoralloc(typeof(Y), a ⊗ b ← a ⊗ b, Val(true))
+    @test_throws ArgumentError TensorKit.one!(T) # blocks of temporaries require an allocator
+    @test_throws ArgumentError mul!(T, Y, Y')
+
+    for f! in (TensorKit.one!, TensorKit.isomorphism!, TensorKit.isometry!)
+        check_allocator() do al # blocks of a temporary off the diagonal are kept
+            T = TensorOperations.tensoralloc_add(Float64, Y, ((1, 2), (3, 4)), false, Val(true), al)
+            TensorOperations.tensoradd!(
+                T, Y, ((1, 2), (3, 4)), false, 1, 0, TensorOperations.DefaultBackend(), al
+            )
+            n = norm(f!(T))
+            TensorOperations.tensorfree!(T, al)
+            return n
+        end
+    end
+
+    # permuted and BLAS-compatible destinations, without and with blocks outside of the product
+    @tensor C1[x y; p q] := A[x q; w] * B[w p; y]
+    @tensor C2[x q; p y] := A[x q; w] * B[w p; y]
+    for C in (spzeros(Float64, space(C1)), sprand(Float64, space(C1), 1.0))
+        check_allocator() do al
+            C′ = copy(C)
+            return @tensor allocator = al C′[x y; p q] += A[x q; w] * B[w p; y]
+        end
+    end
+    for C in (spzeros(Float64, space(C2)), sprand(Float64, space(C2), 1.0))
+        check_allocator() do al
+            C′ = copy(C)
+            return @tensor allocator = al C′[x q; p y] += A[x q; w] * B[w p; y]
+        end
     end
 end
