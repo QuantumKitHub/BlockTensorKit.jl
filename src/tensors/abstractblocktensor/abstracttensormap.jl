@@ -122,10 +122,10 @@ function _blockdims(P::ProductSumSpace{S, N}, c::Sector) where {S, N}
 end
 
 zeroblock(::Type{TT}, d₁::Int, d₂::Int) where {TT <: AbstractTensorMap} =
-    zerovector!(similar(storagetype(TT), d₁, d₂))
+    zerovector!(similar(storagetype(TT), d₁, d₂))::TK.blocktype(TT)
 function zeroblock(::Type{TT}, d₁::Int, d₂::Int) where {TT <: TensorMap}
     data = zerovector!(similar(storagetype(TT), d₁ * d₂))
-    return reshape(view(data, 1:(d₁ * d₂)), (d₁, d₂))
+    return reshape(view(data, 1:(d₁ * d₂)), (d₁, d₂))::TK.blocktype(TT)
 end
 zeroblock(::Type{<:AdjointTensorMap{<:Any, <:Any, <:Any, <:Any, TT}}, d₁::Int, d₂::Int) where {TT} =
     zeroblock(TT, d₂, d₁)'
