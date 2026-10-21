@@ -27,9 +27,7 @@ function copy_blocks!(A::BlockMatrix, Adense)
 end
 copy_blocks!(A, Adense) = copyto!(A, Adense)
 
-const BlockBlasMat{T <: MAK.BlasFloat} = BlockMatrix{T}
-
-function MAK.zero!(A::BlockBlasMat)
+function MAK.zero!(A::BlockMatrix)
     for bj in blockaxes(A, 2), bi in blockaxes(A, 1)
         a = view(A, bi, bj)
         MAK.zero!(a)
@@ -37,7 +35,7 @@ function MAK.zero!(A::BlockBlasMat)
     return A
 end
 
-function MAK.one!(A::BlockBlasMat)
+function MAK.one!(A::BlockMatrix)
     rowaxis, colaxis = axes(A)
     for bj in blockaxes(A, 2), bi in blockaxes(A, 1)
         a = view(A, bi, bj)
