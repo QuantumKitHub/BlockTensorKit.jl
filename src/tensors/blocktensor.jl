@@ -99,6 +99,18 @@ function BlockTensorMap(
     return BlockTensorMap(data, codom ← dom)
 end
 
+# Slicing
+# -------
+# a dense slice holds the blocks of `t` itself, so its own are never allocated
+function _slice_getindex_full(t::BlockTensorMap, inds::Tuple)
+    V = space(eachspace(t)[inds...])
+    return typeof(t)(parent(t)[map(_keepdim, inds)...], V)
+end
+@propagate_inbounds _slice_getindex_full(t::BlockTensorMap, inds::NTuple{M, Int}) where {M} =
+    parent(t)[inds...]
+_keepdim(i::Integer) = i:i
+_keepdim(i) = i
+
 # AbstractBlockTensorMap -> BlockTensorMap
 function BlockTensorMap(t::AbstractBlockTensorMap)
     t isa BlockTensorMap && return t # TODO: should this copy?
