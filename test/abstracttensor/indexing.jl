@@ -236,6 +236,18 @@ end
     @test @allocated(tb[inds...]) < 2_000_000
 end
 
+# a dense slice shares the blocks of its parent, without allocating any of its own
+@testset "dense slicing shares blocks" begin
+    D = 64
+    t = rand(SumSpace(ℂ^16) ⊗ SumSpace(fill(ℂ^2, D)...) ← SumSpace(ℂ^16))
+    inds = (1:1, 2:(D - 1), 1:1)
+    s = t[inds...]
+    @test space(s) == space(eachspace(t)[inds...])
+    @test all(i -> s[1, i, 1] === t[1, i + 1, 1], 1:(D - 2))
+    @test t[1, 3, :] isa BlockTensorMap && t[1, 3, :][1, 1, 1] === t[1, 3, 1]
+    @test @allocated(t[inds...]) < sum(b -> sizeof(b.data), parent(t)) ÷ 4
+end
+
 # guard against assignment work proportional to the assigned region
 @testset "assignment scales with nnz" begin
     D = 48
