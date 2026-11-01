@@ -8,7 +8,7 @@ for f in (:permute, :transpose)
                 tdst::BlockTensorMap, tsrc::BlockTensorMap, p::Index2Tuple,
                 α::Number, β::Number, backend::AbstractBackend, allocator
             )
-            @boundscheck TK.spacecheck_transform(TK.$f, tdst, tsrc, p)
+            @boundscheck TK.spacecheck_transform(TK.$f, space(tdst), space(tsrc), p)
 
             dstdata = parent(tdst)
             srcdata = permutedims(StridedView(parent(tsrc)), (p[1]..., p[2]...))
@@ -22,7 +22,7 @@ for f in (:permute, :transpose)
                 tdst::AbstractBlockTensorMap, tsrc::BlockTensorOrAdjoint,
                 p::Index2Tuple, α::Number, β::Number, backend::AbstractBackend, allocator
             )
-            @boundscheck TK.spacecheck_transform(TK.$f, tdst, tsrc, p)
+            @boundscheck TK.spacecheck_transform(TK.$f, space(tdst), space(tsrc), p)
             p_lin = (p[1]..., p[2]...)
             _scale_untouched!(tdst, tsrc, β, p_lin)
             @inbounds for (I, v) in nonzero_pairs(tsrc)
@@ -53,7 +53,7 @@ end
         tdst::BlockTensorMap, tsrc::BlockTensorMap, p::Index2Tuple, levels::IndexTuple,
         α::Number, β::Number, backend::AbstractBackend, allocator
     )
-    @boundscheck TK.spacecheck_transform(braid, tdst, tsrc, p, levels)
+    @boundscheck TK.spacecheck_transform(braid, space(tdst), space(tsrc), p, levels)
 
     dstdata = parent(tdst)
     srcdata = permutedims(StridedView(parent(tsrc)), (p[1]..., p[2]...))
@@ -70,7 +70,7 @@ end
         p::Index2Tuple, levels::IndexTuple,
         α::Number, β::Number, backend::AbstractBackend, allocator
     )
-    @boundscheck TK.spacecheck_transform(braid, tdst, tsrc, p, levels)
+    @boundscheck TK.spacecheck_transform(braid, space(tdst), space(tsrc), p, levels)
     p_lin = (p[1]..., p[2]...)
     _scale_untouched!(tdst, tsrc, β, p_lin)
     @inbounds for (I, v) in nonzero_pairs(tsrc)
