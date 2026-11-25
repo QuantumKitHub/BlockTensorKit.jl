@@ -53,6 +53,47 @@ function TO.tensoradd!(
     return C
 end
 
+# permute_twist!
+# --------------
+# unwrap an adjoint source as TensorKit does, and permute/twist blockwise in a single pass
+function TK.permute_twist!(
+        tdst::AbstractBlockTensorMap, tsrc::BlockTensorOrAdjoint, p::Index2Tuple,
+        twistmask, backend, allocator
+    )
+    @boundscheck TK.spacecheck_transform(TK.permute, space(tdst), space(tsrc), p)
+    tsrc′, p′, _, conjsrc = TK._unwrap_source(tsrc, p, nothing, false)
+    return _permute_twist_blocks!(tdst, tsrc′, p′, conjsrc, twistmask, backend, allocator)
+end
+function _permute_twist_blocks!(
+        tdst::BlockTensorMap, tsrc::BlockTensorMap, p::Index2Tuple, conjsrc::Bool,
+        twistmask, backend, allocator
+    )
+    Cdata = parent(tdst)
+    Adata = permutedims(StridedView(parent(tsrc)), (p[1]..., p[2]...))
+    for I in eachindex(Cdata, Adata)
+        Cdata[I] = _permute_twist_block!(Cdata[I], Adata[I], p, conjsrc, twistmask, backend, allocator)
+    end
+    return tdst
+end
+function _permute_twist_blocks!(
+        tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap, p::Index2Tuple, conjsrc::Bool,
+        twistmask, backend, allocator
+    )
+    p_lin = (p[1]..., p[2]...)
+    # set blocks of tdst that permuting tsrc doesn't touch to zero
+    _scale_untouched!(tdst, tsrc, Zero(), p_lin)
+    for (I, v) in nonzero_pairs(tsrc)
+        I′ = CartesianIndex(TT.getindices(I.I, p_lin))
+        _addblock!(tdst, I′, Zero(), allocator) do c, _
+            _permute_twist_block!(c, v, p, conjsrc, twistmask, backend, allocator)
+        end
+    end
+    return tdst
+end
+function _permute_twist_block!(c, v, p, conjsrc, twistmask, backend, allocator)
+    return TK._braid!(c, v, p, conjsrc, allind(v), twistmask, One(), Zero(), backend, allocator)
+end
+
 function TO.tensoradd_type(
         TC, A::AbstractBlockTensorMap, ::Index2Tuple{N₁, N₂}, ::Bool
     ) where {N₁, N₂}
