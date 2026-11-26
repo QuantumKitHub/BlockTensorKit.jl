@@ -151,6 +151,23 @@ end
     end
 end
 
+@testset "tensorcontract with CartesianSpace" begin
+    V = SumSpace(ℝ^2, ℝ^1, ℝ^3)
+    for T in (Float32, Float64), Asparse in (false, true), Bsparse in (false, true)
+        A = Asparse ? sprand(T, V ← V ⊗ V, 0.5) : rand(T, V ← V ⊗ V)
+        B = Bsparse ? sprand(T, V ⊗ V ← V, 0.5) : rand(T, V ⊗ V ← V)
+        Ad, Bd = convert(TensorMap, A), convert(TensorMap, B)
+
+        @tensor C1[a b; c d] := A[a; c x] * B[x b; d]
+        @tensor C2[a b; c d] := Ad[a; c x] * Bd[x b; d]
+        @test convert(TensorMap, C1) ≈ C2
+
+        @plansor D1[a b; c d] := A[a; c x] * B[x b; d]
+        @plansor D2[a b; c d] := Ad[a; c x] * Bd[x b; d]
+        @test convert(TensorMap, D1) ≈ D2
+    end
+end
+
 ##
 
 # temporaries are `PtrArray`s, such that converting them into other storage is detected
