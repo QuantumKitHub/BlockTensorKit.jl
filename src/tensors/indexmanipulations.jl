@@ -1,5 +1,3 @@
-const BlockTensorOrAdjoint = Union{AbstractBlockTensorMap, AdjointBlockTensorMap}
-
 # permute!, braid!, tensoradd!, permute_twist!
 # --------------------------------------------
 # these all unwrap adjoints and then call `_braid!`
@@ -59,46 +57,61 @@ end
 
 # transpose!
 # ----------
-function TK.transpose!(
-        tdst::BlockTensorMap, tsrc::BlockTensorMap, p::Index2Tuple,
-        α::Number, β::Number, backend::AbstractBackend, allocator
-    )
-    @boundscheck TK.spacecheck_transform(TK.transpose, space(tdst), space(tsrc), p)
+# this unwraps adjoints and then calls `_transpose!`
 
+@propagate_inbounds function _transpose_block!(tdst, tsrc, p, conjsrc, α, β, backend, allocator)
+    tsrc′, p′, _, conjsrc′ = TK._unwrap_source(tsrc, p, nothing, conjsrc)
+    return TK._transpose!(tdst, tsrc′, p′, conjsrc′, α, β, backend, allocator)
+end
+# no `twistmask` here, so the blocks of a `tdst'` can be unwrapped too, returning the block itself
+@propagate_inbounds function _transpose_block!(
+        tdst::AdjointTensorMap, tsrc, p, conjsrc, α, β, backend, allocator
+    )
+    tdst′, p′, conjsrc′, α′, β′ = TK._unwrap_destination(tdst, p, conjsrc, α, β)
+    _transpose_block!(tdst′, tsrc, p′, conjsrc′, α′, β′, backend, allocator)
+    return tdst
+end
+
+@propagate_inbounds function TK._transpose!(
+        tdst::BlockTensorMap, tsrc::BlockTensorMap, p::Index2Tuple, conjsrc::Bool,
+        α, β, backend, allocator
+    )
+    @boundscheck TK.spacecheck_transform(TK.permute, space(tdst), space(tsrc), p, conjsrc)
     dstdata = parent(tdst)
     srcdata = permutedims(StridedView(parent(tsrc)), (p[1]..., p[2]...))
-
     @inbounds for I in eachindex(dstdata, srcdata)
-        dstdata[I] = TK.transpose!(dstdata[I], srcdata[I], p, α, β, backend, allocator)
+        dstdata[I] = _transpose_block!(dstdata[I], srcdata[I], p, conjsrc, α, β, backend, allocator)
     end
     return tdst
 end
-function TK.transpose!(
-        tdst::AbstractBlockTensorMap, tsrc::BlockTensorOrAdjoint,
-        p::Index2Tuple, α::Number, β::Number, backend::AbstractBackend, allocator
+@propagate_inbounds function TK._transpose!(
+        tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap, p::Index2Tuple, conjsrc::Bool,
+        α, β, backend, allocator
     )
-    @boundscheck TK.spacecheck_transform(TK.transpose, space(tdst), space(tsrc), p)
+    @boundscheck TK.spacecheck_transform(TK.permute, space(tdst), space(tsrc), p, conjsrc)
     p_lin = (p[1]..., p[2]...)
     _scale_untouched!(tdst, tsrc, β, p_lin)
     @inbounds for (I, v) in nonzero_pairs(tsrc)
         I′ = CartesianIndex(TT.getindices(I.I, p_lin))
         _addblock!(tdst, I′, β, allocator) do c, γ
-            TK.transpose!(c, v, p, α, γ, backend, allocator)
+            # `@inbounds` doesn't reach into this closure
+            @inbounds _transpose_block!(c, v, p, conjsrc, α, γ, backend, allocator)
         end
     end
     return tdst
 end
-function TK.transpose!(
-        tdst::TensorMap, tsrc::BlockTensorMap, p::Index2Tuple,
-        α::Number, β::Number, backend::AbstractBackend, allocator
+# a block tensor holding a single block is interchangeable with that block
+@propagate_inbounds function TK._transpose!(
+        tdst::TensorMap, tsrc::BlockTensorMap, p::Index2Tuple, conjsrc::Bool,
+        α, β, backend, allocator
     )
-    return TK.transpose!(tdst, only(tsrc), p, α, β, backend, allocator)
+    return _transpose_block!(tdst, only(tsrc), p, conjsrc, α, β, backend, allocator)
 end
-function TK.transpose!(
-        tdst::BlockTensorMap, tsrc::TensorMap, p::Index2Tuple,
-        α::Number, β::Number, backend::AbstractBackend, allocator
+@propagate_inbounds function TK._transpose!(
+        tdst::BlockTensorMap, tsrc::TensorMap, p::Index2Tuple, conjsrc::Bool,
+        α, β, backend, allocator
     )
-    TK.transpose!(only(tdst), tsrc, p, α, β, backend, allocator)
+    TK._transpose!(only(tdst), tsrc, p, conjsrc, α, β, backend, allocator)
     return tdst
 end
 
