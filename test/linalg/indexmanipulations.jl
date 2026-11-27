@@ -41,6 +41,19 @@ transform!(f, C, A, p, α, β) = f === braid! ? f(C, A, p, (1, 2, 3, 4, 5), α, 
     @test dense(transform!(f, C, A, p, One(), Zero())) ≈ transform!(f, zerovector(dense(C)), Ad, p, One(), Zero())
 end
 
+# TensorKit unwraps a destination wrapped as `AdjointTensorMap` before calling the kernels
+@testset "$f into AdjointTensorMap ($(sectortype(V[1])), sparse = $sparse)" for V in (Vtr, Vf),
+        f in (permute!, braid!, transpose!), sparse in (false, true)
+    T = ComplexF64
+    A = maketensor(sparse, T, V[1] ⊗ V[2] ⊗ V[3] ← V[4] ⊗ V[5])
+    p = perms(f)
+    D = maketensor(sparse, T, permute(space(A), p)')
+    α, β = randn(T), randn(T)
+    Cd = transform!(f, TensorKit.AdjointTensorMap(dense(D)), dense(A), p, α, β)
+    C = transform!(f, TensorKit.AdjointTensorMap(D), A, p, α, β)
+    @test dense(parent(C)) ≈ parent(Cd)
+end
+
 # `twist` and `twist!(tdst, tsrc, ...)` go through `_twist!`, unlike the in-place `twist!(t, inds)`
 @testset "twist ($(sectortype(V[1])), C sparse = $Csparse, A sparse = $Asparse, adjoint = $adj)" for V in (Vtr, Vf),
         Csparse in (false, true), Asparse in (false, true), adj in (false, true)
