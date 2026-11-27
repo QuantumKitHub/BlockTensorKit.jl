@@ -54,6 +54,25 @@ end
     @test dense(parent(C)) ≈ parent(Cd)
 end
 
+# `twist` and `twist!(tdst, tsrc, ...)` go through `_twist!`, unlike the in-place `twist!(t, inds)`
+@testset "twist ($(sectortype(V[1])), C sparse = $Csparse, A sparse = $Asparse, adjoint = $adj)" for V in (Vtr, Vf),
+        Csparse in (false, true), Asparse in (false, true), adj in (false, true)
+    T = ComplexF64
+    W = V[1] ⊗ V[2] ⊗ V[3] ← V[4] ⊗ V[5]
+    A = maketensor(Asparse, T, adj ? W' : W)
+    A = adj ? A' : A
+    Ad = adj ? dense(A')' : dense(A)
+    inds = (1, 4)
+    for β in (Zero(), One(), randn(T)), inv in (false, true)
+        α = randn(T)
+        C = maketensor(Csparse, T, space(A))
+        Cd = twist!(dense(C), Ad, inds, α, β; inv)
+        @test twist!(C, A, inds, α, β; inv) === C
+        @test dense(C) ≈ Cd
+    end
+    Csparse || @test dense(twist(A, inds)) ≈ twist(Ad, inds)
+end
+
 @testset "permute of adjoint ($(sectortype(V[1])), sparse = $sparse)" for V in (Vtr, Vf), sparse in (false, true)
     W = V[1] ⊗ V[2] ⊗ V[3] ← V[4] ⊗ V[5]
     t = maketensor(sparse, ComplexF64, W)
