@@ -3,56 +3,7 @@
 
 # tensoradd!
 # ----------
-# `TensorKit` is free to reorganize its own index manipulation kernels, and `TO.tensoradd!` does
-# not necessarily route through `permute!` or `add_transform!`. Intercepting the public
-# `TO.tensoradd!` entry point instead keeps the blockwise implementations reachable regardless.
-function TO.tensoradd!(
-        C::BlockTensorMap, A::BlockTensorMap, pA::Index2Tuple, conjA::Bool,
-        α::Number, β::Number, backend, allocator
-    )
-    Cdata = parent(C)
-    Adata = permutedims(StridedView(parent(A)), (pA[1]..., pA[2]...))
-    @inbounds for I in eachindex(Cdata, Adata)
-        Cdata[I] = TO.tensoradd!(Cdata[I], Adata[I], pA, conjA, α, β, backend, allocator)
-    end
-    return C
-end
-function TO.tensoradd!(
-        C::AbstractBlockTensorMap, A::AbstractBlockTensorMap, pA::Index2Tuple, conjA::Bool,
-        α::Number, β::Number, backend, allocator
-    )
-    p_lin = (pA[1]..., pA[2]...)
-    _scale_untouched!(C, A, β, p_lin)
-    @inbounds for (I, v) in nonzero_pairs(A)
-        I′ = CartesianIndex(TT.getindices(I.I, p_lin))
-        _addblock!(C, I′, β, allocator) do c, γ
-            TO.tensoradd!(c, v, pA, conjA, α, γ, backend, allocator)
-        end
-    end
-    return C
-end
-# adjoints are absorbed into the conjugation flag and the permutation
-function TO.tensoradd!(
-        C::AbstractBlockTensorMap, A::AdjointBlockTensorMap, pA::Index2Tuple, conjA::Bool,
-        α::Number, β::Number, backend, allocator
-    )
-    return TO.tensoradd!(C, A', adjointtensorindices(A, pA), !conjA, α, β, backend, allocator)
-end
-# a block tensor holding a single block is interchangeable with that block
-function TO.tensoradd!(
-        C::TensorMap, A::BlockTensorMap, pA::Index2Tuple, conjA::Bool,
-        α::Number, β::Number, backend, allocator
-    )
-    return TO.tensoradd!(C, only(A), pA, conjA, α, β, backend, allocator)
-end
-function TO.tensoradd!(
-        C::BlockTensorMap, A::TensorMap, pA::Index2Tuple, conjA::Bool,
-        α::Number, β::Number, backend, allocator
-    )
-    TO.tensoradd!(only(C), A, pA, conjA, α, β, backend, allocator)
-    return C
-end
-
+# `TO.tensoradd!` goes through the blockwise `_braid!` kernel in indexmanipulations.jl
 function TO.tensoradd_type(
         TC, A::AbstractBlockTensorMap, ::Index2Tuple{N₁, N₂}, ::Bool
     ) where {N₁, N₂}

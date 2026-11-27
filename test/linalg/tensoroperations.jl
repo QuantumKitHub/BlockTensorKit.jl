@@ -151,6 +151,25 @@ end
     end
 end
 
+# testing `permute_twist!` in `blas_contract!` since contracted z is in A's codomain
+# tested for a selfdual ℝ^d and fermionic space where permutes also twist
+@testset "tensorcontract with permuted operands ($(spacetype(a)))" for (a, b, c) in (
+        (SumSpace(ℝ^2, ℝ^1), SumSpace(ℝ^1, ℝ^2, ℝ^1), SumSpace(ℝ^2, ℝ^3)),
+        (
+            SumSpace(Vect[FermionParity](0 => 1, 1 => 1), Vect[FermionParity](0 => 2)),
+            SumSpace(Vect[FermionParity](1 => 2), Vect[FermionParity](0 => 1, 1 => 1)),
+            SumSpace(Vect[FermionParity](0 => 1), Vect[FermionParity](1 => 1)),
+        ),
+    )
+    for Asparse in (false, true), Bsparse in (false, true)
+        A = Asparse ? sprand(Float64, a ⊗ b ← c, 0.5) : randn(Float64, a ⊗ b ← c)
+        B = Bsparse ? sprand(Float64, c ⊗ b' ← a, 0.5) : randn(Float64, c ⊗ b' ← a)
+        @tensor C1[x; y] := A[x z; w] * B[w z; y]
+        @tensor C2[x; y] := convert(TensorMap, A)[x z; w] * convert(TensorMap, B)[w z; y]
+        @test convert(TensorMap, C1) ≈ C2
+    end
+end
+
 ##
 
 # temporaries are `PtrArray`s, such that converting them into other storage is detected
