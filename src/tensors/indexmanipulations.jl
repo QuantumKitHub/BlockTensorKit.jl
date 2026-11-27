@@ -138,7 +138,51 @@ Base.@constprop :aggressive function TK.removeunit(
     return tdst
 end
 
+# twist!, twist
+# -------------
+# the in-place `twist!(t, inds)` twists each block in place
 function TK.twist!(t::AbstractBlockTensorMap, is; inv::Bool = false)
     foreach(x -> twist!(x, is; inv), nonzero_values(t))
     return t
+end
+
+# `twist` and `twist!(tdst, tsrc, inds, α, β)` unwrap adjoints and then call `_twist!`
+
+# unwrap just `tsrc`, see `_braid_block!`
+# unlike in `_braid!`, `twistmask` refers to the legs of `tsrc`, so it's relabeled along with it
+@propagate_inbounds function _twist_block!(
+        tdst, tsrc, p, conjsrc, twistmask, inv, α, β, backend, allocator
+    )
+    tsrc′, p′, twistmask′, conjsrc′ = TK._unwrap_source(tsrc, p, twistmask, conjsrc)
+    return TK._twist!(tdst, tsrc′, p′, conjsrc′, twistmask′, inv, α, β, backend, allocator)
+end
+
+@propagate_inbounds function TK._twist!(
+        tdst::BlockTensorMap, tsrc::BlockTensorMap, p::Index2Tuple, conjsrc::Bool,
+        twistmask::Tuple{Vararg{Bool}}, inv::Bool, α, β, backend, allocator
+    )
+    @boundscheck TK.spacecheck_transform(TK.permute, space(tdst), space(tsrc), p, conjsrc)
+    dstdata = parent(tdst)
+    srcdata = permutedims(StridedView(parent(tsrc)), (p[1]..., p[2]...))
+    @inbounds for I in eachindex(dstdata, srcdata)
+        dstdata[I] = _twist_block!(
+            dstdata[I], srcdata[I], p, conjsrc, twistmask, inv, α, β, backend, allocator
+        )
+    end
+    return tdst
+end
+@propagate_inbounds function TK._twist!(
+        tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap, p::Index2Tuple, conjsrc::Bool,
+        twistmask::Tuple{Vararg{Bool}}, inv::Bool, α, β, backend, allocator
+    )
+    @boundscheck TK.spacecheck_transform(TK.permute, space(tdst), space(tsrc), p, conjsrc)
+    p_lin = (p[1]..., p[2]...)
+    _scale_untouched!(tdst, tsrc, β, p_lin)
+    @inbounds for (I, v) in nonzero_pairs(tsrc)
+        I′ = CartesianIndex(TT.getindices(I.I, p_lin))
+        _addblock!(tdst, I′, β, allocator) do c, γ
+            _twist_block!(c, v, p, conjsrc, twistmask, inv, α, γ, backend, allocator)
+        end
+    end
+    return tdst
 end
