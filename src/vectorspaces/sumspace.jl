@@ -103,16 +103,19 @@ Return the type of a `SumSpace` with elements of type `S`.
 """
 sumspacetype(::Type{S}) where {S <: ElementarySpace} = SumSpace{S}
 
-TensorKit.dims(S::SumSpace) = map(dim, S.spaces)
+# The comprehensions below are deliberate. When the type of `S` is not concrete, a `map` over
+# `S.spaces` hits the recursion limit of type inference whenever it is reached from within
+# another `map` call, and nothing that calls it is cached (JuliaLang/julia#64862).
+TensorKit.dims(S::SumSpace) = [dim(V) for V in S.spaces]
 TensorKit.dim(S::SumSpace, n::Int) = dim(S.spaces[n])
 TensorKit.dim(S::SumSpace) = sum(dims(S))
 
 TensorKit.isdual(S::SumSpace) = S.dual
-TensorKit.dual(S::SumSpace{CartesianSpace}) = SumSpace(map(dual, S.spaces); dual = false)
-TensorKit.dual(S::SumSpace) = SumSpace(map(dual, S.spaces); dual = !isdual(S))
+TensorKit.dual(S::SumSpace{CartesianSpace}) = SumSpace([dual(V) for V in S.spaces]; dual = false)
+TensorKit.dual(S::SumSpace) = SumSpace([dual(V) for V in S.spaces]; dual = !isdual(S))
 Base.conj(S::SumSpace) = dual(S)
-TensorKit.flip(S::SumSpace{CartesianSpace}) = SumSpace(map(flip, S.spaces); dual = false)
-TensorKit.flip(S::SumSpace) = SumSpace(map(flip, S.spaces); dual = isdual(S))
+TensorKit.flip(S::SumSpace{CartesianSpace}) = SumSpace([flip(V) for V in S.spaces]; dual = false)
+TensorKit.flip(S::SumSpace) = SumSpace([flip(V) for V in S.spaces]; dual = isdual(S))
 
 function TensorKit.hassector(S::SumSpace, s::Sector)
     return mapreduce(v -> hassector(v, s), |, S.spaces; init = false)
