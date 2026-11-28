@@ -107,6 +107,26 @@ end
     end
 end
 
+# for non-bosonic sectors `planartrace!` doesn't go through `trace_permute!`
+@testset "planartrace! (fermionic, B sparse = $Bsparse, C sparse = $Csparse)" for Bsparse in (false, true),
+        Csparse in (false, true)
+    F = Vect[FermionParity]
+    V1, V2, V3 = F(0 => 1, 1 => 1) ⊞ F(0 => 2), F(1 => 1) ⊞ F(0 => 1, 1 => 2), F(0 => 2, 1 => 1) ⊞ F(1 => 1)
+    T = ComplexF64
+    B = Bsparse ? sprand(T, V1 ⊗ V2 ← V3 ⊗ V2, 0.6) : randn(T, V1 ⊗ V2 ← V3 ⊗ V2)
+    Bd = convert(TensorMap, B)
+    @planar C1[a; b] := B[a c; b c]
+    @planar C2[a; b] := Bd[a c; b c]
+    @test convert(TensorMap, C1) ≈ C2
+    for β in (zero(T), one(T), randn(T))
+        α = randn(T)
+        C = Csparse ? sprand(T, V1 ← V3, 0.5) : randn(T, V1 ← V3)
+        Cd = TensorKit.planartrace!(convert(TensorMap, C), Bd, ((1,), (3,)), ((2,), (4,)), α, β)
+        @test TensorKit.planartrace!(C, B, ((1,), (3,)), ((2,), (4,)), α, β) === C
+        @test convert(TensorMap, C) ≈ Cd
+    end
+end
+
 ##
 
 @testset "tensortrace" begin

@@ -214,6 +214,37 @@ function TK.trace_permute!(
     return tdst
 end
 
+# TensorKit's `planartrace!` only goes through `trace_permute!` for bosonic sectors, the others
+# write into the subblocks of `tdst`, which loses what belongs to blocks a sparse `tdst` doesn't have
+function TK.planartrace!(
+        tdst::AbstractBlockTensorMap, tsrc::AbstractBlockTensorMap,
+        (p₁, p₂)::Index2Tuple, (q₁, q₂)::Index2Tuple,
+        α::Number, β::Number, backend, allocator
+    )
+    TK.check_spacetype(tdst, tsrc)
+    (N₃ = length(q₁)) == length(q₂) ||
+        throw(IndexError("number of trace indices does not match"))
+
+    @boundscheck begin
+        space(tdst) == TK.select(space(tsrc), (p₁, p₂)) ||
+            throw(SpaceMismatch("trace: tsrc = $(codomain(tsrc))←$(domain(tsrc)),
+                    tdst = $(codomain(tdst))←$(domain(tdst)), p₁ = $(p₁), p₂ = $(p₂)"))
+        all(i -> space(tsrc, q₁[i]) == dual(space(tsrc, q₂[i])), 1:N₃) ||
+            throw(SpaceMismatch("trace: tsrc = $(codomain(tsrc))←$(domain(tsrc)),
+                    q₁ = $(q₁), q₂ = $(q₂)"))
+    end
+
+    isone(β) || (iszero(β) ? zerovector!(tdst) : scale!(tdst, β))
+    @inbounds for (Isrc, vsrc) in nonzero_pairs(tsrc)
+        TT.getindices(Isrc.I, q₁) == TT.getindices(Isrc.I, q₂) || continue
+        Idst = CartesianIndex(TT.getindices(Isrc.I, (p₁..., p₂...)))
+        _addblock!(tdst, Idst, One(), allocator) do c, γ
+            TK.planartrace!(c, vsrc, (p₁, p₂), (q₁, q₂), α, γ, backend, allocator)
+        end
+    end
+    return tdst
+end
+
 # PlanarOperations
 # ----------------
 
